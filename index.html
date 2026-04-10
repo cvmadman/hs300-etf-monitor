@@ -7,85 +7,276 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f7fa; padding: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); padding: 30px; }
-        .header { margin-bottom: 30px; text-align: center; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f7fa; }
+        
+        /* 左侧固定菜单 */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 260px;
+            height: 100vh;
+            background: white;
+            box-shadow: 2px 0 12px rgba(0,0,0,0.08);
+            padding: 30px 20px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .sidebar-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .menu-item {
+            padding: 12px 15px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .menu-item:hover {
+            background: #f3f4f6;
+        }
+        .menu-item.active {
+            background: #2563eb;
+            color: white;
+        }
+        .menu-item.active .change-percent {
+            color: rgba(255,255,255,0.9);
+        }
+        .change-percent {
+            font-size: 12px;
+            font-weight: 500;
+        }
+        /* 颜色反转：正红负绿 */
+        .change-percent.positive {
+            color: #ef4444;
+        }
+        .change-percent.negative {
+            color: #10b981;
+        }
+
+        /* 右侧主内容 */
+        .main-content {
+            margin-left: 260px;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        .header { margin-bottom: 20px; text-align: center; }
         .header h1 { color: #1f2937; font-size: 28px; margin-bottom: 10px; }
         .header p { color: #6b7280; font-size: 14px; }
-        .control-bar { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
-        .control-item { display: flex; align-items: center; gap: 10px; }
-        .control-item label { color: #374151; font-weight: 500; }
-        .control-item select { padding: 8px 16px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: white; cursor: pointer; }
-        .control-item button { padding: 8px 16px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: white; cursor: pointer; }
-        .update-info { color: #10b981; font-size: 13px; }
+
+        /* 控制栏 */
+        .control-bar { 
+            display: flex; 
+            gap: 15px; 
+            margin-bottom: 15px; 
+            flex-wrap: wrap; 
+            align-items: center;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+        .control-item { display: flex; align-items: center; gap: 8px; }
+        .control-item label { color: #374151; font-size: 14px; }
+        .control-item input { 
+            padding: 6px 10px; 
+            border: 1px solid #d1d5db; 
+            border-radius: 6px; 
+            font-size: 14px;
+        }
+        .control-item button { 
+            padding: 6px 14px; 
+            border: 1px solid #d1d5db; 
+            border-radius: 6px; 
+            font-size: 14px; 
+            background: white;
+            cursor: pointer;
+        }
+        .control-item button:hover {
+            background: #f3f4f6;
+        }
+        .update-info { color: #10b981; font-size: 13px; margin-left: auto; }
+
+        /* 区间统计 */
+        .range-stats {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f0f9ff;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #0369a1;
+        }
+        .range-stats .stats-change {
+            font-weight: 600;
+        }
+        /* 颜色反转：正红负绿 */
+        .range-stats .stats-change.positive {
+            color: #ef4444;
+        }
+        .range-stats .stats-change.negative {
+            color: #10b981;
+        }
+
         #chart { width: 100%; height: 500px; }
-        .data-table { margin-top: 30px; overflow-x: auto; }
+        .data-table { margin-top: 20px; overflow-x: auto; }
         .data-table h3 { color: #1f2937; margin-bottom: 15px; font-size: 18px; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; }
         th { background: #f9fafb; color: #374151; font-weight: 600; }
         tr:hover { background: #f9fafb; }
         .source-note { margin-top: 20px; padding: 15px; background: #f0f9ff; border-radius: 8px; color: #0369a1; font-size: 13px; }
+
+        /* 响应式：手机端适配 */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: static;
+                width: 100%;
+                height: auto;
+                box-shadow: none;
+                padding: 15px;
+            }
+            .main-content {
+                margin-left: 0;
+                padding: 10px;
+            }
+            .menu-item {
+                display: inline-block;
+                width: auto;
+                margin-right: 8px;
+                margin-bottom: 8px;
+            }
+            .control-bar {
+                gap: 10px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>沪深300ETF份额监控工具</h1>
-            <p>数据来源：上海证券交易所官网 | 自动每日更新</p>
+    <!-- 左侧固定菜单 -->
+    <div class="sidebar">
+        <div class="sidebar-title">选择ETF</div>
+        <div class="menu-item active" data-key="total">
+            9只合计总份额
+            <span class="change-percent">--</span>
         </div>
-
-        <div class="control-bar">
-            <div class="control-item">
-                <label>查看维度：</label>
-                <select id="etfSelect">
-                    <option value="total">9只合计总份额</option>
-                    <option value="510300">510300 华泰柏瑞</option>
-                    <option value="510310">510310 易方达</option>
-                    <option value="510330">510330 华夏</option>
-                    <option value="510360">510360 广发</option>
-                    <option value="510350">510350 工银</option>
-                    <option value="510390">510390 平安</option>
-                    <option value="510320">510320 中金</option>
-                    <option value="510380">510380 国泰</option>
-                    <option value="510370">510370 兴业</option>
-                </select>
-            </div>
-            <div class="control-item">
-                <button id="resetAxis">重置纵轴区间</button>
-            </div>
-            <div class="update-info" id="updateInfo">
-                最后更新：2026-04-10 18:00:00
-            </div>
+        <div class="menu-item" data-key="510300">
+            510300 华泰柏瑞
+            <span class="change-percent">--</span>
         </div>
-
-        <div id="chart"></div>
-
-        <div class="data-table">
-            <h3>日度数据明细</h3>
-            <table id="dataTable">
-                <thead>
-                    <tr>
-                        <th style="text-align: left;">日期</th>
-                        <th>份额（亿份）</th>
-                        <th>较前日变动（亿份）</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody">
-                </tbody>
-            </table>
+        <div class="menu-item" data-key="510310">
+            510310 易方达
+            <span class="change-percent">--</span>
         </div>
+        <div class="menu-item" data-key="510330">
+            510330 华夏
+            <span class="change-percent">--</span>
+        </div>
+        <div class="menu-item" data-key="510360">
+            510360 广发
+            <span class="change-percent">--</span>
+        </div>
+        <div class="menu-item" data-key="510350">
+            510350 工银
+            <span class="change-percent">--</span>
+        </div>
+        <div class="menu-item" data-key="510390">
+            510390 平安
+            <span class="change-percent">--</span>
+        </div>
+        <div class="menu-item" data-key="510320">
+            510320 中金
+            <span class="change-percent">--</span>
+        </div>
+        <div class="menu-item" data-key="510380">
+            510380 国泰
+            <span class="change-percent">--</span>
+        </div>
+        <div class="menu-item" data-key="510370">
+            510370 兴业
+            <span class="change-percent">--</span>
+        </div>
+    </div>
 
-        <div class="source-note">
-            <strong>说明：</strong>本工具每日18:00自动从上海证券交易所官网抓取最新清算后份额数据，覆盖2024-09-01以来所有交易日，数据100%来自上交所官方披露，无任何第三方估算。
+    <!-- 右侧主内容 -->
+    <div class="main-content">
+        <div class="container">
+            <div class="header">
+                <h1>沪深300ETF份额监控工具</h1>
+                <p>数据来源：上海证券交易所官网 | 自动每日更新</p>
+            </div>
+
+            <!-- 控制栏：日期区间选择 -->
+            <div class="control-bar">
+                <div class="control-item">
+                    <label>开始日期：</label>
+                    <input type="date" id="startDate">
+                </div>
+                <div class="control-item">
+                    <label>结束日期：</label>
+                    <input type="date" id="endDate">
+                </div>
+                <div class="control-item">
+                    <button id="applyRange">应用区间</button>
+                </div>
+                <div class="control-item">
+                    <button id="resetAxis">重置纵轴</button>
+                </div>
+                <div class="update-info" id="updateInfo">
+                    最后更新：加载中...
+                </div>
+            </div>
+
+            <!-- 区间统计信息 -->
+            <div class="range-stats" id="rangeStats">
+                区间统计：加载中...
+            </div>
+
+            <!-- 图表 -->
+            <div id="chart"></div>
+
+            <!-- 数据表格 -->
+            <div class="data-table">
+                <h3>日度数据明细</h3>
+                <table id="dataTable">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left;">日期</th>
+                            <th>份额（亿份）</th>
+                            <th>较前日变动（亿份）</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="source-note">
+                <strong>说明：</strong>本工具每日18:00自动从上海证券交易所官网抓取最新清算后份额数据，覆盖2024-09-01以来所有交易日，数据100%来自上交所官方披露，无任何第三方估算。
+            </div>
         </div>
     </div>
 
     <script>
-        // 初始化图表
+        // 全局变量
         const chart = echarts.init(document.getElementById('chart'));
-        
-        // 完整历史数据结构
+        let currentKey = 'total'; // 当前选中的ETF
+        let currentStartDate = '2024-09-01'; // 当前选中的区间开始
+        let currentEndDate = ''; // 当前选中的区间结束
         const allData = {
             dates: [],
             total: [],
@@ -99,91 +290,135 @@
             510380: [],
             510370: []
         };
+        const names = {
+            total: '9只合计总份额',
+            510300: '510300 华泰柏瑞沪深300ETF',
+            510310: '510310 易方达沪深300ETF',
+            510330: '510330 华夏沪深300ETF',
+            510360: '510360 广发沪深300ETF',
+            510350: '510350 工银沪深300ETF',
+            510390: '510390 平安沪深300ETF',
+            510320: '510320 中金沪深300ETF',
+            510380: '510380 国泰沪深300ETF',
+            510370: '510370 兴业沪深300ETF'
+        };
 
         // 加载数据
         async function loadData() {
             try {
-                // 从服务器加载最新的JSON数据
                 const res = await fetch('etf_data.json');
                 const data = await res.json();
                 Object.assign(allData, data);
-                renderChart('total');
-                renderTable('total');
-                // 更新最后更新时间
-                document.getElementById('updateInfo').textContent = `最后更新：${allData.dates[allData.dates.length-1]} 18:00:00`;
+                currentEndDate = allData.dates[allData.dates.length - 1];
+                
+                // 初始化日期选择器
+                document.getElementById('startDate').value = currentStartDate;
+                document.getElementById('endDate').value = currentEndDate;
+                document.getElementById('startDate').min = '2024-09-01';
+                document.getElementById('startDate').max = currentEndDate;
+                document.getElementById('endDate').min = '2024-09-01';
+                document.getElementById('endDate').max = currentEndDate;
+
+                // 更新菜单的当日变动百分比
+                updateMenuPercent();
+
+                // 初始化渲染
+                renderCurrentView();
+                document.getElementById('updateInfo').textContent = `最后更新：${currentEndDate} 18:00:00`;
             } catch(e) {
-                // 如果加载失败，用本地的完整测试数据
                 console.log('使用本地测试数据', e);
                 initLocalData();
-                renderChart('total');
-                renderTable('total');
+                currentEndDate = allData.dates[allData.dates.length - 1];
+                document.getElementById('startDate').value = currentStartDate;
+                document.getElementById('endDate').value = currentEndDate;
+                updateMenuPercent();
+                renderCurrentView();
             }
         }
 
-        // 本地初始化数据（包含2026年完整单只数据）
-        function initLocalData() {
-            const dates = [
-                "2026-01-02","2026-01-05","2026-01-06","2026-01-07","2026-01-08","2026-01-09","2026-01-12","2026-01-13","2026-01-14","2026-01-15",
-                "2026-01-16","2026-01-19","2026-01-20","2026-01-21","2026-01-22","2026-01-23","2026-01-26","2026-01-27","2026-01-28","2026-01-29",
-                "2026-01-30","2026-02-02","2026-02-03","2026-02-04","2026-02-05","2026-02-06","2026-02-09","2026-02-10","2026-02-11","2026-02-12",
-                "2026-02-13","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-02-20","2026-02-23","2026-02-24","2026-02-25","2026-02-26",
-                "2026-02-27","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-10","2026-03-11","2026-03-12",
-                "2026-03-13","2026-03-14","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-23","2026-03-24","2026-03-25","2026-03-26",
-                "2026-03-27","2026-03-31","2026-04-01","2026-04-02","2026-04-03","2026-04-07","2026-04-08","2026-04-09","2026-04-10"
-            ];
-            const total = [
-                2053.17,2032.47,2013.65,1994.83,1976.01,1957.19,1938.37,1919.55,1900.73,1881.91,
-                1863.09,1844.27,1825.45,1806.63,1787.81,1768.99,1750.17,1731.35,1712.53,1693.71,
-                1674.89,1656.07,1637.25,1618.43,1599.61,1580.79,1561.97,1543.15,1524.33,1505.51,
-                1486.69,1467.87,1449.05,1430.23,1411.41,1392.59,1373.77,1354.95,1336.13,1317.31,
-                1298.49,1279.67,1260.85,1242.03,1223.21,1204.39,1185.57,1166.75,1147.93,1129.11,
-                1110.29,1091.47,1072.65,1053.83,1035.01,1016.19,1005.23,995.24,993.11,990.98,
-                988.85,1003.34,1002.26,1000.61,1001.14,1004.56,1004.56,998.82,999.91
-            ];
-            // 单只ETF的2026年数据
-            const etf510300 = [886.74,877.53,868.32,859.11,849.90,840.69,831.48,822.27,813.06,803.85,794.64,785.43,776.22,767.01,757.80,748.59,739.38,730.17,720.96,711.75,702.54,693.33,684.12,674.91,665.70,656.49,647.28,638.07,628.86,619.65,610.44,601.23,592.02,582.81,573.60,564.39,555.18,545.97,536.76,527.55,518.34,509.13,499.92,490.71,481.50,472.29,463.08,453.87,444.66,435.45,426.24,417.03,407.82,398.61,389.40,380.19,450.52,369.68,368.37,367.07,365.77,364.47,365.77,365.52,365.18,365.07,365.77,365.77,364.47,364.95];
-            const etf510310 = [657.22,649.46,641.70,633.94,626.18,618.42,610.66,602.90,595.14,587.38,579.62,571.86,564.10,556.34,548.58,540.82,533.06,525.30,517.54,509.78,502.02,494.26,486.50,478.74,470.98,463.22,455.46,447.70,439.94,432.18,424.42,416.66,408.90,401.14,393.38,385.62,377.86,370.10,362.34,354.58,346.82,339.06,331.30,323.54,315.78,308.02,300.26,292.50,284.74,276.98,269.22,261.46,253.70,245.94,238.18,230.42,317.89,221.45,220.25,219.04,217.84,216.63,216.98,216.87,216.75,216.63,216.98,216.98,215.65,215.92];
-            const etf510330 = [420.55,415.11,409.66,404.22,398.77,393.33,387.88,382.44,376.99,371.55,366.10,360.66,355.21,349.77,344.32,338.88,333.43,327.99,322.54,317.10,311.65,306.21,300.76,295.32,289.87,284.43,278.98,273.54,268.09,262.65,257.20,251.76,246.31,240.87,235.42,229.98,224.53,219.09,213.64,208.20,202.75,197.31,191.86,186.42,180.97,175.53,170.08,164.64,159.19,153.75,148.30,142.86,137.41,131.97,126.52,121.08,193.87,114.83,114.02,113.22,112.41,111.61,112.41,112.26,112.05,112.11,112.41,112.41,111.61,111.84];
-            // 其他6只的测试数据
-            const etf510360 = new Array(dates.length).fill(35.2);
-            const etf510350 = new Array(dates.length).fill(18.5);
-            const etf510390 = new Array(dates.length).fill(12.3);
-            const etf510320 = new Array(dates.length).fill(8.7);
-            const etf510380 = new Array(dates.length).fill(6.2);
-            const etf510370 = new Array(dates.length).fill(4.1);
+        // 更新左侧菜单的当日变动百分比
+        function updateMenuPercent() {
+            const lastIdx = allData.dates.length - 1;
+            const prevIdx = lastIdx - 1;
+            if (prevIdx < 0) return;
 
-            allData.dates = dates;
-            allData.total = total;
-            allData['510300'] = etf510300;
-            allData['510310'] = etf510310;
-            allData['510330'] = etf510330;
-            allData['510360'] = etf510360;
-            allData['510350'] = etf510350;
-            allData['510390'] = etf510390;
-            allData['510320'] = etf510320;
-            allData['510380'] = etf510380;
-            allData['510370'] = etf510370;
+            document.querySelectorAll('.menu-item').forEach(item => {
+                const key = item.dataset.key;
+                const lastVal = allData[key][lastIdx];
+                const prevVal = allData[key][prevIdx];
+                const change = lastVal - prevVal;
+                const percent = (change / prevVal) * 100;
+
+                const span = item.querySelector('.change-percent');
+                span.textContent = `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`;
+                // 颜色反转：正红负绿
+                span.className = `change-percent ${percent >= 0 ? 'positive' : 'negative'}`;
+            });
+        }
+
+        // 过滤当前区间的数据
+        function filterRangeData(key) {
+            // 找出区间内的索引
+            const filtered = [];
+            const filteredDates = [];
+            for (let i = 0; i < allData.dates.length; i++) {
+                const date = allData.dates[i];
+                if (date >= currentStartDate && date <= currentEndDate) {
+                    filteredDates.push(date);
+                    filtered.push(allData[key][i]);
+                }
+            }
+            return {
+                dates: filteredDates,
+                values: filtered
+            };
+        }
+
+        // 渲染当前的视图（图表+表格+统计）
+        function renderCurrentView() {
+            const filtered = filterRangeData(currentKey);
+            const dates = filtered.dates;
+            const values = filtered.values;
+
+            // 1. 更新区间统计
+            updateRangeStats(dates, values);
+
+            // 2. 渲染图表
+            renderChart(currentKey, dates, values);
+
+            // 3. 渲染表格
+            renderTable(currentKey, dates, values);
+        }
+
+        // 更新区间统计信息
+        function updateRangeStats(dates, values) {
+            if (dates.length === 0) {
+                document.getElementById('rangeStats').textContent = '区间内无数据';
+                return;
+            }
+            const startDate = dates[0];
+            const endDate = dates[dates.length - 1];
+            const startVal = values[0];
+            const endVal = values[values.length - 1];
+            const change = endVal - startVal;
+            const percent = (change / startVal) * 100;
+
+            const statsEl = document.getElementById('rangeStats');
+            statsEl.innerHTML = `
+                区间统计：${startDate} ~ ${endDate} 
+                | 起始份额: ${startVal.toFixed(2)}亿份 
+                | 结束份额: ${endVal.toFixed(2)}亿份 
+                | 累计变动: <span class="stats-change ${change >= 0 ? 'positive' : 'negative'}">
+                    ${change >= 0 ? '+' : ''}${change.toFixed(2)}亿份 / ${change >= 0 ? '+' : ''}${percent.toFixed(2)}%
+                </span>
+            `;
         }
 
         // 渲染图表
-        function renderChart(key) {
-            const data = allData[key];
-            const names = {
-                total: '9只合计总份额',
-                510300: '510300 华泰柏瑞沪深300ETF',
-                510310: '510310 易方达沪深300ETF',
-                510330: '510330 华夏沪深300ETF',
-                510360: '510360 广发沪深300ETF',
-                510350: '510350 工银沪深300ETF',
-                510390: '510390 平安沪深300ETF',
-                510320: '510320 中金沪深300ETF',
-                510380: '510380 国泰沪深300ETF',
-                510370: '510370 兴业沪深300ETF'
-            };
-
+        function renderChart(key, dates, values) {
             // 初始纵轴自适应全局数据
-            const globalMin = Math.min(...data) * 0.99;
-            const globalMax = Math.max(...data) * 1.01;
+            const globalMin = Math.min(...values) * 0.99;
+            const globalMax = Math.max(...values) * 1.01;
 
             const option = {
                 title: {
@@ -207,7 +442,7 @@
                 },
                 xAxis: {
                     type: 'category',
-                    data: allData.dates,
+                    data: dates,
                     axisLabel: {
                         rotate: 45,
                         fontSize: 10
@@ -220,7 +455,7 @@
                     max: globalMax
                 },
                 series: [{
-                    data: data,
+                    data: values,
                     type: 'line',
                     smooth: true,
                     lineStyle: {
@@ -257,39 +492,37 @@
             chart.off('click');
             chart.on('click', function(params) {
                 const clickIndex = params.dataIndex;
-                // 取点击位置前后5个数据，缩小区间突出波动
-                const startIdx = Math.max(0, clickIndex - 10);
-                const endIdx = Math.min(data.length - 1, clickIndex + 10);
-                const rangeData = data.slice(startIdx, endIdx + 1);
+                const startIdx = Math.max(0, clickIndex - 5);
+                const endIdx = Math.min(values.length - 1, clickIndex + 5);
+                const rangeData = values.slice(startIdx, endIdx + 1);
                 const localMin = Math.min(...rangeData) * 0.995;
                 const localMax = Math.max(...rangeData) * 1.005;
-                // 更新纵轴
                 chart.setOption({
                     yAxis: { min: localMin, max: localMax }
                 });
             });
         }
 
-        // 渲染表格（修复变动计算逻辑）
-        function renderTable(key) {
-            const data = allData[key];
-            const dates = allData.dates;
+        // 渲染表格
+        function renderTable(key, dates, values) {
+            // 先找到原始的索引，用来计算前日变动
             const tbody = document.getElementById('tableBody');
             tbody.innerHTML = '';
 
             // 倒序遍历，最新的在最上面
             for(let i = dates.length - 1; i >= 0; i--) {
                 const date = dates[i];
-                const value = data[i];
-                // 修复：当日 - 前日，不是当日 - 后日！
-                const prevValue = i > 0 ? data[i-1] : value;
+                const value = values[i];
+                // 找到原始的全局索引，用来找前一天的数据
+                const globalIdx = allData.dates.indexOf(date);
+                const prevValue = globalIdx > 0 ? allData[key][globalIdx - 1] : value;
                 const change = value - prevValue;
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td style="text-align: left;">${date}</td>
                     <td>${value.toFixed(2)}</td>
-                    <td style="color: ${change >= 0 ? '#10b981' : '#ef4444'}">
+                    <td style="color: ${change >= 0 ? '#ef4444' : '#10b981'}">
                         ${change >= 0 ? '+' : ''}${change.toFixed(2)}
                     </td>
                 `;
@@ -297,17 +530,82 @@
             }
         }
 
-        // 选择器事件
-        document.getElementById('etfSelect').addEventListener('change', function(e) {
-            const key = e.target.value;
-            renderChart(key);
-            renderTable(key);
+        // 本地初始化数据（兜底）
+        function initLocalData() {
+            const dates = [
+                "2026-01-02","2026-01-05","2026-01-06","2026-01-07","2026-01-08","2026-01-09","2026-01-12","2026-01-13","2026-01-14","2026-01-15",
+                "2026-01-16","2026-01-19","2026-01-20","2026-01-21","2026-01-22","2026-01-23","2026-01-26","2026-01-27","2026-01-28","2026-01-29",
+                "2026-01-30","2026-02-02","2026-02-03","2026-02-04","2026-02-05","2026-02-06","2026-02-09","2026-02-10","2026-02-11","2026-02-12",
+                "2026-02-13","2026-02-16","2026-02-17","2026-02-18","2026-02-19","2026-02-20","2026-02-23","2026-02-24","2026-02-25","2026-02-26",
+                "2026-02-27","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-10","2026-03-11","2026-03-12",
+                "2026-03-13","2026-03-14","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-23","2026-03-24","2026-03-25","2026-03-26",
+                "2026-03-27","2026-03-31","2026-04-01","2026-04-02","2026-04-03","2026-04-07","2026-04-08","2026-04-09","2026-04-10"
+            ];
+            const total = [
+                2053.17,2032.47,2013.65,1994.83,1976.01,1957.19,1938.37,1919.55,1900.73,1881.91,
+                1863.09,1844.27,1825.45,1806.63,1787.81,1768.99,1750.17,1731.35,1712.53,1693.71,
+                1674.89,1656.07,1637.25,1618.43,1599.61,1580.79,1561.97,1543.15,1524.33,1505.51,
+                1486.69,1467.87,1449.05,1430.23,1411.41,1392.59,1373.77,1354.95,1336.13,1317.31,
+                1298.49,1279.67,1260.85,1242.03,1223.21,1204.39,1185.57,1166.75,1147.93,1129.11,
+                1110.29,1091.47,1072.65,1053.83,1035.01,1016.19,1005.23,995.24,993.11,990.98,
+                988.85,1003.34,1002.26,1000.61,1001.14,1004.56,1004.56,998.82,999.91
+            ];
+            const etf510300 = [886.74,877.53,868.32,859.11,849.90,840.69,831.48,822.27,813.06,803.85,794.64,785.43,776.22,767.01,757.80,748.59,739.38,730.17,720.96,711.75,702.54,693.33,684.12,674.91,665.70,656.49,647.28,638.07,628.86,619.65,610.44,601.23,592.02,582.81,573.60,564.39,555.18,545.97,536.76,527.55,518.34,509.13,499.92,490.71,481.50,472.29,463.08,453.87,444.66,435.45,426.24,417.03,407.82,398.61,389.40,380.19,450.52,369.68,368.37,367.07,365.77,364.47,365.77,365.52,365.18,365.07,365.77,365.77,364.47,364.95];
+            const etf510310 = [657.22,649.46,641.70,633.94,626.18,618.42,610.66,602.90,595.14,587.38,579.62,571.86,564.10,556.34,548.58,540.82,533.06,525.30,517.54,509.78,502.02,494.26,486.50,478.74,470.98,463.22,455.46,447.70,439.94,432.18,424.42,416.66,408.90,401.14,393.38,385.62,377.86,370.10,362.34,354.58,346.82,339.06,331.30,323.54,315.78,308.02,300.26,292.50,284.74,276.98,269.22,261.46,253.70,245.94,238.18,230.42,317.89,221.45,220.25,219.04,217.84,216.63,216.98,216.87,216.75,216.63,216.98,216.98,215.65,215.92];
+            const etf510330 = [420.55,415.11,409.66,404.22,398.77,393.33,387.88,382.44,376.99,371.55,366.10,360.66,355.21,349.77,344.32,338.88,333.43,327.99,322.54,317.10,311.65,306.21,300.76,295.32,289.87,284.43,278.98,273.54,268.09,262.65,257.20,251.76,246.31,240.87,235.42,229.98,224.53,219.09,213.64,208.20,202.75,197.31,191.86,186.42,180.97,175.53,170.08,164.64,159.19,153.75,148.30,142.86,137.41,131.97,126.52,121.08,193.87,114.83,114.02,113.22,112.41,111.61,112.41,112.26,112.05,112.11,112.41,112.41,111.61,111.84];
+            const etf510360 = new Array(dates.length).fill(35.2);
+            const etf510350 = new Array(dates.length).fill(18.5);
+            const etf510390 = new Array(dates.length).fill(12.3);
+            const etf510320 = new Array(dates.length).fill(8.7);
+            const etf510380 = new Array(dates.length).fill(6.2);
+            const etf510370 = new Array(dates.length).fill(4.1);
+
+            allData.dates = dates;
+            allData.total = total;
+            allData['510300'] = etf510300;
+            allData['510310'] = etf510310;
+            allData['510330'] = etf510330;
+            allData['510360'] = etf510360;
+            allData['510350'] = etf510350;
+            allData['510390'] = etf510390;
+            allData['510320'] = etf510320;
+            allData['510380'] = etf510380;
+            allData['510370'] = etf510370;
+        }
+
+        // 事件绑定
+        // 菜单点击
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.addEventListener('click', function() {
+                // 切换active
+                document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+                // 更新当前key
+                currentKey = this.dataset.key;
+                // 重新渲染
+                renderCurrentView();
+            });
         });
 
-        // 重置纵轴按钮
+        // 应用区间
+        document.getElementById('applyRange').addEventListener('click', function() {
+            currentStartDate = document.getElementById('startDate').value;
+            currentEndDate = document.getElementById('endDate').value;
+            // 校验日期
+            if (currentStartDate > currentEndDate) {
+                alert('开始日期不能大于结束日期');
+                return;
+            }
+            // 更新日期选择器的限制
+            document.getElementById('startDate').max = currentEndDate;
+            document.getElementById('endDate').min = currentStartDate;
+            // 重新渲染
+            renderCurrentView();
+        });
+
+        // 重置纵轴
         document.getElementById('resetAxis').addEventListener('click', function() {
-            const currentKey = document.getElementById('etfSelect').value;
-            renderChart(currentKey);
+            renderCurrentView();
         });
 
         // 窗口resize
