@@ -1,41 +1,43 @@
 name: Update ETF Data
-
 on:
   schedule:
-    - cron: '0 10 * * *'  # 每天18点（UTC 10点）自动运行
-  workflow_dispatch:  # 允许手动触发
-
+    - cron: '0 10 * * *'  # 每天北京时间18点（UTC 10点）自动运行，适配上交所数据更新时间
+  workflow_dispatch:  # 允许手动触发执行
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # 超时保护，避免任务卡死
     permissions:
-      contents: write  # 给读写权限
+      contents: write  # 给仓库读写权限，保证提交正常
     steps:
-      - name: Checkout code
+      - name: Checkout 仓库代码
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 完整克隆，解决pull的问题
+          fetch-depth: 0  # 完整克隆仓库，解决git pull冲突问题
+          ref: main  # 适配主分支名称，如你的主分支是master请修改
 
-      - name: Set up Python
+      - name: 设置Python环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'  # 缓存pip依赖，加快执行速度
 
-      - name: Install dependencies
+      - name: 安装Python依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run crawler
+      - name: 执行增量爬虫更新数据
         run: |
           python etf_crawler.py
 
-      - name: Commit and push changes
+      - name: 提交并推送更新到仓库
         run: |
           git config --local user.name "GitHub Action"
           git config --local user.email "action@github.com"
-          # 核心修复：先拉远程的最新变更，自动合并，再也不会push被拒
+          # 先拉取远程最新变更，避免push冲突
           git pull origin main --rebase --autostash
-          git add etf_data.json
-          git commit -m "Auto update data: $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          # 提交JSON数据文件和数据库文件，永久保存增量数据
+          git add etf_data.json etf.db etf_backup.db
+          git commit -m "Auto update ETF data: $(date +'%Y-%m-%d')" || echo "No data changes, skip commit"
           git push
