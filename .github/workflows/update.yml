@@ -6,7 +6,7 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # 超时保护，避免任务卡死
+    timeout-minutes: 200  # 超时保护，避免任务卡死
     permissions:
       contents: write  # 给仓库读写权限，保证提交正常
     steps:
