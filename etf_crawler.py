@@ -48,15 +48,16 @@ def backup_database():
 def init_database():
     """初始化数据库，创建表结构（不存在则创建，已存在不影响）"""
     try:
+        # 提前拼接ETF字段，避免f-string嵌套语法错误
+        etf_fields = ', '.join([f'"{code}" REAL NOT NULL DEFAULT 0' for code in ETF_CODES])
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        # 修复：SQLite数字开头字段名必须用双引号包裹，解决语法错误
         create_table_sql = f'''
         CREATE TABLE IF NOT EXISTS etf_share (
             "date" TEXT PRIMARY KEY NOT NULL,
             "total" REAL NOT NULL DEFAULT 0,
-            {', '.join([f'"{code}" REAL NOT NULL DEFAULT 0' for code in ETF_CODES])}
+            {etf_fields}
         )
         '''
         cursor.execute(create_table_sql)
@@ -113,10 +114,7 @@ def insert_data_to_db(date_str: str, share_data: dict):
             return
     
     try:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        
-        # 修复：字段名加双引号，解决语法错误
+        # 提前拼接字段，避免语法错误
         columns = ['"date"', '"total"'] + [f'"{code}"' for code in ETF_CODES]
         placeholders = [f':{col}' for col in ['date', 'total'] + ETF_CODES]
         insert_sql = f'''
@@ -124,6 +122,8 @@ def insert_data_to_db(date_str: str, share_data: dict):
         VALUES ({', '.join(placeholders)})
         '''
         
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
         cursor.execute(insert_sql, share_data)
         conn.commit()
         conn.close()
@@ -134,9 +134,11 @@ def insert_data_to_db(date_str: str, share_data: dict):
 def get_all_data_from_db():
     """从数据库获取全量有序数据，用于导出JSON，与原有前端格式100%兼容"""
     try:
+        # 提前拼接字段，避免f-string嵌套语法错误
+        etf_fields = ', '.join([f'"{code}"' for code in ETF_CODES])
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute(f'SELECT "date", "total", {", ".join([f'"{code}"' for code in ETF_CODES])} FROM etf_share ORDER BY "date" ASC')
+        cursor.execute(f'SELECT "date", "total", {etf_fields} FROM etf_share ORDER BY "date" ASC')
         all_rows = cursor.fetchall()
         conn.close()
         
