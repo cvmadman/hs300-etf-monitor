@@ -13,7 +13,7 @@ ETF_CODES = [
 
 # 数据存储文件
 DATA_FILE = 'etf_data.json'
-# 历史数据起始日期（改为2024-09-01）
+# 历史数据起始日期
 START_DATE = '2024-09-01'
 
 def load_existing_data():
@@ -32,11 +32,14 @@ def fetch_etf_share_by_date(code, date_str):
     """从上海证券交易所官网抓取单只ETF指定日期的份额"""
     url = f'https://www.sse.com.cn/assortment/fund/list/etfinfo/basic/index.shtml?FUNDID={code}'
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Referer': 'https://www.sse.com.cn/'
     }
     try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
+        res = requests.get(url, headers=headers, timeout=20)
+        soup = BeautifulSoup(res.text, 'lxml')
         # 找到基金规模表格
         tables = soup.find_all('table')
         for table in tables:
@@ -97,7 +100,7 @@ def update_all_data():
                 shares[code] = share
                 total += share
                 print(f'  {code}: {share:.2f} 亿份')
-            time.sleep(0.5)  # 避免请求过快
+            time.sleep(0.8)  # 放慢请求速度，防止被封
         
         if total > 0:
             # 更新数据
@@ -118,7 +121,6 @@ def update_all_data():
             json.dump(data, f, ensure_ascii=False, indent=2)
     
     # 最终排序，保证日期是升序的
-    # 把数据转成DataFrame排序
     df = pd.DataFrame({
         'date': data['dates'],
         'total': data['total'],
