@@ -51,17 +51,17 @@ def init_database():
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        # 创建ETF份额表：日期为主键，每只ETF一个字段，兼容原有所有字段
+        # 修复：SQLite数字开头字段名必须用双引号包裹，解决语法错误
         create_table_sql = f'''
         CREATE TABLE IF NOT EXISTS etf_share (
-            date TEXT PRIMARY KEY NOT NULL,
-            total REAL NOT NULL DEFAULT 0,
-            {', '.join([f'{code} REAL NOT NULL DEFAULT 0' for code in ETF_CODES])}
+            "date" TEXT PRIMARY KEY NOT NULL,
+            "total" REAL NOT NULL DEFAULT 0,
+            {', '.join([f'"{code}" REAL NOT NULL DEFAULT 0' for code in ETF_CODES])}
         )
         '''
         cursor.execute(create_table_sql)
         # 新增索引优化查询速度
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON etf_share(date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON etf_share("date")')
         conn.commit()
         conn.close()
         logger.info(f'数据库初始化完成，文件: {DB_FILE}')
@@ -84,7 +84,7 @@ def get_latest_date_in_db():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('SELECT MAX(date) FROM etf_share')
+        cursor.execute('SELECT MAX("date") FROM etf_share')
         latest_date = cursor.fetchone()[0]
         conn.close()
         return latest_date if latest_date else START_DATE
@@ -96,7 +96,7 @@ def check_date_exists_in_db(date_str: str) -> bool:
     """检查指定日期是否已存在数据库中，避免重复导入"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT 1 FROM etf_share WHERE date = ?', (date_str,))
+    cursor.execute('SELECT 1 FROM etf_share WHERE "date" = ?', (date_str,))
     exists = cursor.fetchone() is not None
     conn.close()
     return exists
@@ -116,9 +116,9 @@ def insert_data_to_db(date_str: str, share_data: dict):
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
-        # 构建插入SQL，存在则替换，保证数据最新
-        columns = ['date', 'total'] + ETF_CODES
-        placeholders = [f':{col}' for col in columns]
+        # 修复：字段名加双引号，解决语法错误
+        columns = ['"date"', '"total"'] + [f'"{code}"' for code in ETF_CODES]
+        placeholders = [f':{col}' for col in ['date', 'total'] + ETF_CODES]
         insert_sql = f'''
         INSERT OR REPLACE INTO etf_share ({', '.join(columns)})
         VALUES ({', '.join(placeholders)})
@@ -136,7 +136,7 @@ def get_all_data_from_db():
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute(f'SELECT date, total, {", ".join(ETF_CODES)} FROM etf_share ORDER BY date ASC')
+        cursor.execute(f'SELECT "date", "total", {", ".join([f'"{code}"' for code in ETF_CODES])} FROM etf_share ORDER BY "date" ASC')
         all_rows = cursor.fetchall()
         conn.close()
         
