@@ -205,6 +205,67 @@ def get_all_data_from_db():
         logger.error(f'读取全量数据失败: {e}')
         return {}
 
+def init_full_history_data():
+    """首次运行时，自动初始化全量历史数据，解决首次爬取分页问题"""
+    logger.info('检测到首次运行，无历史数据，开始自动初始化2024-09-01至今的全量历史数据...')
+    try:
+        # 导入akshare用于快速拉取历史数据
+        import akshare as ak
+        import pandas as pd
+        
+        # 存储每只ETF的历史数据
+        etf_history = {}
+        start_date = START_DATE.replace('-', '')
+        end_date = datetime.date.today().strftime('%Y%m%d')
+        
+        # 拉取每只ETF的历史份额数据
+        for code in ETF_CODES:
+            logger.info(f'正在拉取 {code} 的历史份额数据...')
+            # 调用akshare的ETF份额接口，获取全量历史数据
+            df = ak.fund_etf_share_size(ts_code=f'{code}.SH', start_date=start_date, end_date=end_date)
+            # 转换日期格式，整理成 日期:份额(亿份) 的映射
+            # akshare返回的份额单位是万股，转换为亿份，和原有单位一致
+            date_share = {}
+            for _, row in df.iterrows():
+                date_str = str(row['trade_date'])
+                date_str = f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}'
+                share = float(row['share']) / 10000  # 万股转亿份
+                if share > 0:
+                    date_share[date_str] = share
+            etf_history[code] = date_share
+            time.sleep(0.5)
+        
+        # 整理所有需要处理的日期
+        all_dates = set()
+        for code in ETF_CODES:
+            all_dates.update(etf_history[code].keys())
+        all_dates = sorted([d for d in all_dates if d >= START_DATE])
+        
+        # 按日期批量入库
+        import_count = 0
+        for date_str in all_dates:
+            # 检查该日期9只数据是否完整
+            share_data = {'date': date_str, 'total': 0}
+            complete = True
+            for code in ETF_CODES:
+                if date_str not in etf_history[code]:
+                    complete = False
+                    break
+                share = etf_history[code][date_str]
+                share_data[code] = share
+                share_data['total'] += share
+            
+            if complete and not check_date_is_processed(date_str):
+                if insert_data_to_db(date_str, share_data):
+                    mark_date_processed(date_str)
+                    import_count += 1
+        
+        logger.info(f'全量历史数据初始化完成，共导入 {import_count} 条完整交易日数据')
+        return True
+    except Exception as e:
+        logger.error(f'全量历史数据初始化失败: {e}，将切换为常规爬取模式')
+        return False
+
 def import_existing_json_to_db():
     """导入已有的etf_data.json数据，仅导入9只ETF数据完整的日期，同时标记处理状态"""
     if not os.path.exists(JSON_FILE):
@@ -279,7 +340,8 @@ def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
             tables = soup.find_all('table')
             for table in tables:
                 table_text = table.get_text()
-                if '基金规模' in table_text and '日期' in table_text and '基金总份额' in table_text:
+                # 适配新表头：将原"基金总份额"调整为匹配新表头的"总份额"
+                if '基金规模' in table_text and '日期' in table_text and '总份额' in table_text:
                     target_table = table
                     break
             
@@ -438,8 +500,20 @@ if __name__ == '__main__':
     backup_database()
     # 2. 初始化数据库
     init_database()
-    # 3. 导入现有JSON历史数据（仅导入完整数据）
-    import_existing_json_to_db()
+    
+    # 检查是否是首次运行，无历史数据则自动初始化
+    earliest_date = get_earliest_processed_date()
+    is_first_run = earliest_date == (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') + datetime.timedelta(days=365*2)).strftime('%Y-%m-%d')
+    if is_first_run:
+        # 尝试自动初始化全量历史数据
+        init_success = init_full_history_data()
+        if not init_success:
+            # 初始化失败则导入现有JSON
+            import_existing_json_to_db()
+    else:
+        # 非首次运行，导入现有JSON
+        import_existing_json_to_db()
+    
     # 4. 严格顺序增量爬取（从新往旧，永不找不到日期）
     incremental_crawl()
     # 5. 导出最新全量数据到JSON，供前端使用
