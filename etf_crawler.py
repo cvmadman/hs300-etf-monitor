@@ -104,8 +104,8 @@ def get_earliest_processed_date():
         cursor.execute('SELECT MIN("date") FROM crawl_progress WHERE "is_processed" = 1')
         earliest_date = cursor.fetchone()[0]
         conn.close()
-        # 无处理记录时，返回结束日期的后一天，保证从今日开始处理
-        return earliest_date if earliest_date else (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') + datetime.timedelta(days=365*2)).strftime('%Y-%m-%d')
+        # 无处理记录时，返回今日的后一天，保证从今日开始处理，不会出现未来日期
+        return earliest_date if earliest_date else (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     except Exception as e:
         logger.error(f'获取最早处理日期失败: {e}')
         return (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
@@ -137,18 +137,18 @@ def mark_date_processed(date_str: str):
 
 def insert_data_to_db(date_str: str, share_data: dict):
     """【双重校验】仅当日9只ETF全部有有效数据，才执行入库"""
-    # 强校验1：日期非空
+    # 强校验1：日期非空，过滤无效日期
     if not date_str:
         logger.error(f'{date_str} 日期为空，终止入库')
         return False
     
-    # 强校验2：9只ETF全部有>0的有效数据，无缺失
+    # 强校验2：9只ETF必须全部有>0的有效数据，缺一个都不入库
     for code in ETF_CODES:
         if share_data.get(code, 0) <= 0:
             logger.error(f'{date_str} {code} 无有效份额数据，终止入库')
             return False
     
-    # 强校验3：总份额与单只合计匹配
+    # 强校验3：总份额必须和9只的合计值完全匹配，误差不超过0.01亿份
     calc_total = sum([share_data[code] for code in ETF_CODES])
     if abs(share_data['total'] - calc_total) > 0.01:
         logger.error(f'{date_str} 总份额校验不匹配，终止入库')
@@ -239,7 +239,7 @@ def init_full_history_data():
         all_dates = set()
         for code in ETF_CODES:
             all_dates.update(etf_history[code].keys())
-        all_dates = sorted([d for d in all_dates if d >= START_DATE])
+        all_dates = sorted([d for d in all_dates if d >= START_DATE and d <= datetime.date.today().strftime('%Y-%m-%d')])
         
         # 按日期批量入库
         import_count = 0
@@ -319,6 +319,11 @@ def import_existing_json_to_db():
 # -------------------------- 爬虫核心操作（全量成功校验） --------------------------
 def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
     """从上海证券交易所官网抓取单只ETF指定日期的份额，带重试机制，适配最新页面结构"""
+    # 跳过未来的日期，不用爬
+    if date_str > datetime.date.today().strftime('%Y-%m-%d'):
+        logger.info(f'{code} {date_str} 是未来日期，跳过')
+        return None
+        
     url = f'https://www.sse.com.cn/assortment/fund/list/etfinfo/basic/index.shtml?FUNDID={code}'
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -381,10 +386,15 @@ def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
     return None
 
 def get_trading_days(start_date: str, end_date: str) -> list:
-    """生成交易日列表，自动跳过周末"""
+    """生成交易日列表，自动跳过周末，同时过滤未来日期"""
     try:
         start = datetime.datetime.strptime(start_date, '%Y-%m-%d')
         end = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+        # 强制end不能超过今天，避免生成未来日期
+        today = datetime.datetime.today()
+        if end > today:
+            end = today
+            
         trading_days = []
         current = start
         
@@ -401,6 +411,11 @@ def get_trading_days(start_date: str, end_date: str) -> list:
 
 def crawl_single_day(date_str: str) -> bool:
     """单日完整爬取逻辑，返回是否9只ETF全部抓取成功"""
+    # 跳过未来日期
+    if date_str > datetime.date.today().strftime('%Y-%m-%d'):
+        logger.info(f'{date_str} 是未来日期，跳过爬取')
+        return False
+        
     logger.info(f'===== 开始爬取交易日: {date_str} =====')
     share_dict = {}
     total_share = 0
@@ -483,7 +498,16 @@ def export_db_to_json():
     """从数据库导出全量数据到JSON文件，与原有前端格式100%兼容"""
     all_data = get_all_data_from_db()
     if not all_data or not all_data.get('dates'):
-        logger.error('无有效数据可导出，终止JSON生成')
+        # 就算没有数据，也要生成空的JSON文件，避免git add报错
+        logger.warning('无有效数据，生成空JSON文件占位')
+        empty_data = {
+            'dates': [],
+            'total': []
+        }
+        for code in ETF_CODES:
+            empty_data[code] = []
+        with open(JSON_FILE, 'w', encoding='utf-8') as f:
+            json.dump(empty_data, f)
         return
     
     try:
@@ -492,6 +516,15 @@ def export_db_to_json():
         logger.info(f'已成功导出全量数据到 {JSON_FILE}，共 {len(all_data["dates"])} 条完整记录')
     except Exception as e:
         logger.error(f'导出JSON文件失败: {e}')
+        # 出错也要生成占位文件
+        empty_data = {
+            'dates': [],
+            'total': []
+        }
+        for code in ETF_CODES:
+            empty_data[code] = []
+        with open(JSON_FILE, 'w', encoding='utf-8') as f:
+            json.dump(empty_data, f)
 
 # -------------------------- 主流程（一键执行，零配置） --------------------------
 if __name__ == '__main__':
@@ -503,7 +536,7 @@ if __name__ == '__main__':
     
     # 检查是否是首次运行，无历史数据则自动初始化
     earliest_date = get_earliest_processed_date()
-    is_first_run = earliest_date == (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') + datetime.timedelta(days=365*2)).strftime('%Y-%m-%d')
+    is_first_run = earliest_date == (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     if is_first_run:
         # 尝试自动初始化全量历史数据
         init_success = init_full_history_data()
