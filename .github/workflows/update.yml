@@ -38,6 +38,8 @@ jobs:
           # 先拉取远程最新变更，避免push冲突
           git pull origin main --rebase --autostash
           # 提交JSON数据文件和数据库文件，永久保存增量数据
-          git add etf_data.json etf.db etf_backup.db
+          git add etf_data.json etf.db
+          # 备份文件如果存在就提交，不存在就忽略，避免第一次运行找不到文件报错
+          [ -f etf_backup.db ] && git add etf_backup.db || true
           git commit -m "Auto update ETF data: $(date +'%Y-%m-%d')" || echo "No data changes, skip commit"
           git push
