@@ -27,7 +27,7 @@ MAX_RETRY = 3
 # 单日完整爬取重试次数（当日有ETF失败时，重试完整当日爬取）
 MAX_DAILY_RETRY = 2
 # 请求基础间隔（秒），防反爬
-REQUEST_INTERVAL = 0.5
+REQUEST_INTERVAL = 0.8
 # 单日重试间隔（秒），避免频繁请求
 DAILY_RETRY_INTERVAL = 5
 
