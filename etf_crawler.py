@@ -96,19 +96,19 @@ def init_database():
         else:
             exit(1)
 
-def get_latest_processed_date():
-    """获取最新已完整处理的日期，作为断点续爬的唯一锚点"""
+def get_earliest_processed_date():
+    """【反向爬取核心】获取最早已完整处理的日期，作为断点续爬的唯一锚点"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('SELECT MAX("date") FROM crawl_progress WHERE "is_processed" = 1')
-        latest_date = cursor.fetchone()[0]
+        cursor.execute('SELECT MIN("date") FROM crawl_progress WHERE "is_processed" = 1')
+        earliest_date = cursor.fetchone()[0]
         conn.close()
-        # 无处理记录时，返回起始日期的前一天，保证从起始日期开始处理
-        return latest_date if latest_date else (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        # 无处理记录时，返回结束日期的后一天，保证从今日开始处理
+        return earliest_date if earliest_date else (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') + datetime.timedelta(days=365*2)).strftime('%Y-%m-%d')
     except Exception as e:
-        logger.error(f'获取最新处理日期失败: {e}')
-        return (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        logger.error(f'获取最早处理日期失败: {e}')
+        return (datetime.date.today() + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
 def check_date_is_processed(date_str: str) -> bool:
     """检查指定日期是否已完整处理，处理过直接跳过，绝不重复爬取"""
@@ -374,28 +374,32 @@ def crawl_single_day(date_str: str) -> bool:
         return False
 
 def incremental_crawl():
-    """【严格断点逻辑】仅前一日完整成功，才会爬取下一日，绝不跳日、绝不缺数据"""
-    # 1. 获取断点锚点：最新已完整处理的日期
-    latest_processed_date = get_latest_processed_date()
-    logger.info(f'当前断点：最新已完整处理日期 {latest_processed_date}')
+    """【反向断点逻辑】从新往旧爬，先爬最新的，再爬历史的，永远不会找不到日期"""
+    # 1. 获取断点锚点：最早已完整处理的日期
+    earliest_processed_date = get_earliest_processed_date()
+    logger.info(f'当前断点：最早已完整处理日期 {earliest_processed_date}')
     
-    # 2. 爬取结束日期为当日
+    # 2. 爬取结束日期为起始日期（2024-09-01）
+    end_crawl_date = START_DATE
+    # 3. 今日日期
     today = datetime.date.today().strftime('%Y-%m-%d')
     
-    # 3. 生成需要爬取的交易日列表：从已处理日期的次日开始，到当日结束
-    start_crawl_date = (datetime.datetime.strptime(latest_processed_date, '%Y-%m-%d') + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-    need_crawl_days = get_trading_days(start_crawl_date, today)
+    # 4. 生成需要爬取的交易日列表：从起始日期到断点的前一天，然后反转，从新往旧爬
+    end_crawl_date_for_list = (datetime.datetime.strptime(earliest_processed_date, '%Y-%m-%d') - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    need_crawl_days = get_trading_days(end_crawl_date, end_crawl_date_for_list)
     
     # 过滤掉已经完整处理过的日期（双重保险）
     need_crawl_days = [day for day in need_crawl_days if not check_date_is_processed(day)]
+    # 反转顺序：从新往旧爬！
+    need_crawl_days.reverse()
     
     if not need_crawl_days:
         logger.info('所有日期均已完整处理，无需执行爬取')
         return
     
-    logger.info(f'待爬取交易日列表: {need_crawl_days}，共 {len(need_crawl_days)} 个交易日')
+    logger.info(f'待爬取交易日列表(从新到旧): {need_crawl_days}，共 {len(need_crawl_days)} 个交易日')
     
-    # 4. 严格按日期顺序爬取，前一日失败，绝不爬取下一日
+    # 5. 严格按日期顺序爬取，前一日（更早的）失败，绝不爬取下一日（更旧的）
     for date_str in need_crawl_days:
         daily_success = False
         # 单日完整重试机制
@@ -429,14 +433,14 @@ def export_db_to_json():
 
 # -------------------------- 主流程（一键执行，零配置） --------------------------
 if __name__ == '__main__':
-    logger.info('===== ETF数据增量更新任务开始 =====')
+    logger.info('===== ETF数据增量更新任务开始（反向爬取版）=====')
     # 1. 运行前备份数据库
     backup_database()
     # 2. 初始化数据库
     init_database()
     # 3. 导入现有JSON历史数据（仅导入完整数据）
     import_existing_json_to_db()
-    # 4. 严格顺序增量爬取（绝不跳日、绝不缺数据）
+    # 4. 严格顺序增量爬取（从新往旧，永不找不到日期）
     incremental_crawl()
     # 5. 导出最新全量数据到JSON，供前端使用
     export_db_to_json()
