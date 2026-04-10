@@ -22,10 +22,14 @@ DB_BACKUP_FILE = 'etf_backup.db'
 JSON_FILE = 'etf_data.json'
 # 历史数据起始日期，与原有数据起始时间一致
 START_DATE = '2024-09-01'
-# 请求重试次数
+# 单只ETF请求重试次数
 MAX_RETRY = 3
+# 单日完整爬取重试次数（当日有ETF失败时，重试完整当日爬取）
+MAX_DAILY_RETRY = 2
 # 请求基础间隔（秒），防反爬
-REQUEST_INTERVAL = 0.8
+REQUEST_INTERVAL = 0.5
+# 单日重试间隔（秒），避免频繁请求
+DAILY_RETRY_INTERVAL = 5
 
 # -------------------------- 日志初始化（方便Actions排查问题） --------------------------
 logging.basicConfig(
@@ -35,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# -------------------------- 数据库核心操作（优化版，增加容错与备份） --------------------------
+# -------------------------- 数据库核心操作（严格全量成功准入） --------------------------
 def backup_database():
     """运行前自动备份数据库，防止文件损坏"""
     if os.path.exists(DB_FILE):
@@ -46,13 +50,14 @@ def backup_database():
             logger.warning(f'数据库备份失败: {e}，继续运行主流程')
 
 def init_database():
-    """初始化数据库，创建表结构（不存在则创建，已存在不影响）"""
+    """初始化数据库，创建表结构"""
     try:
         # 提前拼接ETF字段，避免f-string嵌套语法错误
         etf_fields = ', '.join([f'"{code}" REAL NOT NULL DEFAULT 0' for code in ETF_CODES])
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
+        # ETF份额数据表（仅存储9只ETF全部成功的完整日期数据）
         create_table_sql = f'''
         CREATE TABLE IF NOT EXISTS etf_share (
             "date" TEXT PRIMARY KEY NOT NULL,
@@ -61,8 +66,19 @@ def init_database():
         )
         '''
         cursor.execute(create_table_sql)
+        
+        # 爬取进度记录表（仅标记9只ETF全部成功、已完整入库的日期）
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS crawl_progress (
+            "date" TEXT PRIMARY KEY NOT NULL,
+            "is_processed" INTEGER NOT NULL DEFAULT 0,
+            "process_time" TEXT NOT NULL
+        )
+        ''')
+        
         # 新增索引优化查询速度
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON etf_share("date")')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_processed ON crawl_progress("is_processed")')
         conn.commit()
         conn.close()
         logger.info(f'数据库初始化完成，文件: {DB_FILE}')
@@ -80,38 +96,63 @@ def init_database():
         else:
             exit(1)
 
-def get_latest_date_in_db():
-    """获取数据库中最新的日期，用于增量爬取，无数据返回起始日期"""
+def get_latest_processed_date():
+    """获取最新已完整处理的日期，作为断点续爬的唯一锚点"""
     try:
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
-        cursor.execute('SELECT MAX("date") FROM etf_share')
+        cursor.execute('SELECT MAX("date") FROM crawl_progress WHERE "is_processed" = 1')
         latest_date = cursor.fetchone()[0]
         conn.close()
-        return latest_date if latest_date else START_DATE
+        # 无处理记录时，返回起始日期的前一天，保证从起始日期开始处理
+        return latest_date if latest_date else (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     except Exception as e:
-        logger.error(f'获取最新数据日期失败: {e}')
-        return START_DATE
+        logger.error(f'获取最新处理日期失败: {e}')
+        return (datetime.datetime.strptime(START_DATE, '%Y-%m-%d') - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
-def check_date_exists_in_db(date_str: str) -> bool:
-    """检查指定日期是否已存在数据库中，避免重复导入"""
+def check_date_is_processed(date_str: str) -> bool:
+    """检查指定日期是否已完整处理，处理过直接跳过，绝不重复爬取"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute('SELECT 1 FROM etf_share WHERE "date" = ?', (date_str,))
-    exists = cursor.fetchone() is not None
+    cursor.execute('SELECT 1 FROM crawl_progress WHERE "date" = ? AND "is_processed" = 1', (date_str,))
+    is_processed = cursor.fetchone() is not None
     conn.close()
-    return exists
+    return is_processed
+
+def mark_date_processed(date_str: str):
+    """【严格限制】仅当日9只ETF全部成功、完整入库后，才标记为已处理，推进断点"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        process_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute('''
+        INSERT OR REPLACE INTO crawl_progress ("date", "is_processed", "process_time")
+        VALUES (?, 1, ?)
+        ''', (date_str, process_time))
+        conn.commit()
+        conn.close()
+        logger.info(f'{date_str} 已标记为完整处理，断点已更新')
+    except Exception as e:
+        logger.error(f'标记日期处理状态失败: {e}')
 
 def insert_data_to_db(date_str: str, share_data: dict):
-    """插入单日数据到数据库，自动去重，带数据校验"""
-    # 数据强校验：日期非空、总份额大于0、无负数
-    if not date_str or share_data.get('total', 0) <= 0:
-        logger.warning(f'{date_str} 数据校验不通过，跳过入库')
-        return
+    """【双重校验】仅当日9只ETF全部有有效数据，才执行入库"""
+    # 强校验1：日期非空
+    if not date_str:
+        logger.error(f'{date_str} 日期为空，终止入库')
+        return False
+    
+    # 强校验2：9只ETF全部有>0的有效数据，无缺失
     for code in ETF_CODES:
-        if share_data.get(code, 0) < 0:
-            logger.warning(f'{date_str} {code} 份额为负数，跳过入库')
-            return
+        if share_data.get(code, 0) <= 0:
+            logger.error(f'{date_str} {code} 无有效份额数据，终止入库')
+            return False
+    
+    # 强校验3：总份额与单只合计匹配
+    calc_total = sum([share_data[code] for code in ETF_CODES])
+    if abs(share_data['total'] - calc_total) > 0.01:
+        logger.error(f'{date_str} 总份额校验不匹配，终止入库')
+        return False
     
     try:
         # 提前拼接字段，避免语法错误
@@ -127,9 +168,11 @@ def insert_data_to_db(date_str: str, share_data: dict):
         cursor.execute(insert_sql, share_data)
         conn.commit()
         conn.close()
-        logger.info(f'{date_str} 数据已成功存入数据库，合计份额: {share_data["total"]:.2f} 亿份')
+        logger.info(f'{date_str} 完整数据已成功入库，合计份额: {share_data["total"]:.2f} 亿份')
+        return True
     except Exception as e:
         logger.error(f'{date_str} 数据入库失败: {e}')
+        return False
 
 def get_all_data_from_db():
     """从数据库获取全量有序数据，用于导出JSON，与原有前端格式100%兼容"""
@@ -156,14 +199,14 @@ def get_all_data_from_db():
             for idx, code in enumerate(ETF_CODES):
                 result[code].append(row[idx+2])
         
-        logger.info(f'从数据库读取全量数据完成，共 {len(result["dates"])} 条记录')
+        logger.info(f'从数据库读取全量数据完成，共 {len(result["dates"])} 条完整记录')
         return result
     except Exception as e:
         logger.error(f'读取全量数据失败: {e}')
         return {}
 
 def import_existing_json_to_db():
-    """导入已有的etf_data.json数据到数据库，仅导入缺失数据，避免重复爬取"""
+    """导入已有的etf_data.json数据，仅导入9只ETF数据完整的日期，同时标记处理状态"""
     if not os.path.exists(JSON_FILE):
         logger.info('无现有JSON文件，跳过导入步骤')
         return
@@ -177,30 +220,42 @@ def import_existing_json_to_db():
             logger.warning('JSON格式不符合要求，跳过导入')
             return
         
-        # 仅导入数据库中不存在的日期，提升导入速度
+        # 仅导入数据完整、未处理过的日期
         import_count = 0
         for idx, date_str in enumerate(json_data['dates']):
-            if check_date_exists_in_db(date_str):
+            if check_date_is_processed(date_str):
                 continue
             
+            # 校验该日期9只ETF数据是否全部完整
             share_data = {
                 'date': date_str,
                 'total': json_data['total'][idx]
             }
+            data_complete = True
             for code in ETF_CODES:
-                share_data[code] = json_data.get(code, [])[idx] if idx < len(json_data.get(code, [])) else 0
+                code_data = json_data.get(code, [])
+                if idx >= len(code_data) or code_data[idx] <= 0:
+                    data_complete = False
+                    break
+                share_data[code] = code_data[idx]
             
-            insert_data_to_db(date_str, share_data)
-            import_count += 1
+            if not data_complete:
+                logger.warning(f'{date_str} 数据不完整，跳过导入')
+                continue
+            
+            # 导入数据并标记为已处理
+            if insert_data_to_db(date_str, share_data):
+                mark_date_processed(date_str)
+                import_count += 1
         
         if import_count > 0:
-            logger.info(f'成功导入现有JSON数据，新增 {import_count} 条历史记录')
+            logger.info(f'成功导入现有JSON数据，新增 {import_count} 条完整历史记录')
         else:
-            logger.info('JSON数据已全部存在于数据库中，无新增导入')
+            logger.info('JSON数据已全部导入完成，无新增完整记录')
     except Exception as e:
         logger.error(f'导入JSON数据失败: {e}')
 
-# -------------------------- 爬虫核心操作（最新优化版，高容错+高成功率） --------------------------
+# -------------------------- 爬虫核心操作（全量成功校验） --------------------------
 def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
     """从上海证券交易所官网抓取单只ETF指定日期的份额，带重试机制，适配最新页面结构"""
     url = f'https://www.sse.com.cn/assortment/fund/list/etfinfo/basic/index.shtml?FUNDID={code}'
@@ -212,7 +267,7 @@ def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
         'Connection': 'keep-alive'
     }
 
-    # 失败重试机制
+    # 单只ETF失败重试机制
     for retry in range(MAX_RETRY):
         try:
             res = requests.get(url, headers=headers, timeout=15)
@@ -233,7 +288,7 @@ def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
                 target_table = tables[0] if tables else None
             
             if not target_table:
-                logger.warning(f'{code} {date_str} 未找到数据表格，重试次数: {retry+1}')
+                logger.warning(f'{code} {date_str} 未找到数据表格，单只重试次数: {retry+1}')
                 time.sleep(REQUEST_INTERVAL * (retry + 1))
                 continue
             
@@ -245,22 +300,26 @@ def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
                     # 基金总份额(万份) 转换为 亿份，与原有单位完全一致
                     share_value = cols[3].replace(',', '')
                     share = float(share_value) / 10000
-                    return share
+                    if share > 0:
+                        return share
+                    else:
+                        logger.warning(f'{code} {date_str} 份额数据为0，无效')
+                        return None
             
-            # 未匹配到日期，说明当日无数据（休市/未更新）
+            # 未匹配到日期，说明当日无数据
             logger.info(f'{code} {date_str} 未查询到对应日期数据')
             return None
         
         except Exception as e:
-            logger.warning(f'{code} {date_str} 抓取失败，重试次数: {retry+1}，错误: {e}')
+            logger.warning(f'{code} {date_str} 抓取失败，单只重试次数: {retry+1}，错误: {e}')
             time.sleep(REQUEST_INTERVAL * (retry + 1))
     
-    # 重试全部失败
+    # 单只ETF多次重试全部失败
     logger.error(f'{code} {date_str} 多次重试后抓取失败')
     return None
 
 def get_trading_days(start_date: str, end_date: str) -> list:
-    """生成交易日列表，自动跳过周末，后续通过数据校验过滤法定休市日"""
+    """生成交易日列表，自动跳过周末"""
     try:
         start = datetime.datetime.strptime(start_date, '%Y-%m-%d')
         end = datetime.datetime.strptime(end_date, '%Y-%m-%d')
@@ -278,54 +337,81 @@ def get_trading_days(start_date: str, end_date: str) -> list:
         logger.error(f'生成交易日列表失败: {e}')
         return []
 
+def crawl_single_day(date_str: str) -> bool:
+    """单日完整爬取逻辑，返回是否9只ETF全部抓取成功"""
+    logger.info(f'===== 开始爬取交易日: {date_str} =====')
+    share_dict = {}
+    total_share = 0
+    
+    # 逐只抓取ETF份额
+    for code in ETF_CODES:
+        share = fetch_etf_share_by_date(code, date_str)
+        if share is not None and share > 0:
+            share_dict[code] = share
+            total_share += share
+            logger.info(f'{code}: {share:.2f} 亿份')
+        else:
+            logger.error(f'{code} 抓取失败，当日完整数据获取终止')
+            return False
+        # 请求间隔，防反爬
+        time.sleep(REQUEST_INTERVAL)
+    
+    # 构建入库数据
+    insert_data = {
+        'date': date_str,
+        'total': total_share
+    }
+    for code in ETF_CODES:
+        insert_data[code] = share_dict[code]
+    
+    # 入库并返回结果
+    if insert_data_to_db(date_str, insert_data):
+        mark_date_processed(date_str)
+        logger.info(f'===== 完成爬取交易日: {date_str}，数据完整入库 =====\n')
+        return True
+    else:
+        logger.error(f'===== 交易日: {date_str} 数据入库失败 =====\n')
+        return False
+
 def incremental_crawl():
-    """增量爬取核心逻辑，仅爬取数据库缺失的交易日数据"""
-    # 1. 获取数据库最新日期，确定爬取起始点
-    latest_date_in_db = get_latest_date_in_db()
+    """【严格断点逻辑】仅前一日完整成功，才会爬取下一日，绝不跳日、绝不缺数据"""
+    # 1. 获取断点锚点：最新已完整处理的日期
+    latest_processed_date = get_latest_processed_date()
+    logger.info(f'当前断点：最新已完整处理日期 {latest_processed_date}')
+    
     # 2. 爬取结束日期为当日
     today = datetime.date.today().strftime('%Y-%m-%d')
     
-    # 3. 生成需要爬取的交易日列表
-    need_crawl_days = get_trading_days(latest_date_in_db, today)
-    # 过滤掉已存在的最新日期，避免重复爬取
-    if latest_date_in_db in need_crawl_days:
-        need_crawl_days.remove(latest_date_in_db)
+    # 3. 生成需要爬取的交易日列表：从已处理日期的次日开始，到当日结束
+    start_crawl_date = (datetime.datetime.strptime(latest_processed_date, '%Y-%m-%d') + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    need_crawl_days = get_trading_days(start_crawl_date, today)
+    
+    # 过滤掉已经完整处理过的日期（双重保险）
+    need_crawl_days = [day for day in need_crawl_days if not check_date_is_processed(day)]
     
     if not need_crawl_days:
-        logger.info('所有数据已是最新，无需执行爬取')
+        logger.info('所有日期均已完整处理，无需执行爬取')
         return
     
-    logger.info(f'开始增量爬取，共 {len(need_crawl_days)} 个待爬取交易日: {need_crawl_days}')
+    logger.info(f'待爬取交易日列表: {need_crawl_days}，共 {len(need_crawl_days)} 个交易日')
     
-    # 4. 逐天爬取数据
+    # 4. 严格按日期顺序爬取，前一日失败，绝不爬取下一日
     for date_str in need_crawl_days:
-        logger.info(f'===== 处理交易日: {date_str} =====')
-        share_dict = {}
-        total_share = 0
+        daily_success = False
+        # 单日完整重试机制
+        for retry in range(MAX_DAILY_RETRY + 1):
+            if retry > 0:
+                logger.warning(f'{date_str} 第{retry}次重试，等待{DAILY_RETRY_INTERVAL}秒后开始')
+                time.sleep(DAILY_RETRY_INTERVAL)
+            
+            if crawl_single_day(date_str):
+                daily_success = True
+                break
         
-        # 逐只抓取ETF份额
-        for code in ETF_CODES:
-            share = fetch_etf_share_by_date(code, date_str)
-            if share is not None and share > 0:
-                share_dict[code] = share
-                total_share += share
-                logger.info(f'{code}: {share:.2f} 亿份')
-            # 动态请求间隔，防反爬
-            time.sleep(REQUEST_INTERVAL)
-        
-        # 仅当有有效数据时入库，过滤休市日无数据的情况
-        if total_share > 0:
-            # 构建入库数据
-            insert_data = {
-                'date': date_str,
-                'total': total_share
-            }
-            for code in ETF_CODES:
-                insert_data[code] = share_dict.get(code, 0)
-            # 写入数据库
-            insert_data_to_db(date_str, insert_data)
-        else:
-            logger.warning(f'{date_str} 未获取到任何有效数据，跳过入库（大概率为休市日）')
+        # 当日最终失败，终止所有后续爬取，绝不跳日
+        if not daily_success:
+            logger.error(f'{date_str} 多次重试后仍未获取完整数据，终止本次爬取任务，下次运行将重新爬取该日期')
+            break
 
 def export_db_to_json():
     """从数据库导出全量数据到JSON文件，与原有前端格式100%兼容"""
@@ -337,7 +423,7 @@ def export_db_to_json():
     try:
         with open(JSON_FILE, 'w', encoding='utf-8') as f:
             json.dump(all_data, f, ensure_ascii=False, indent=2)
-        logger.info(f'已成功导出全量数据到 {JSON_FILE}，共 {len(all_data["dates"])} 条记录')
+        logger.info(f'已成功导出全量数据到 {JSON_FILE}，共 {len(all_data["dates"])} 条完整记录')
     except Exception as e:
         logger.error(f'导出JSON文件失败: {e}')
 
@@ -348,9 +434,9 @@ if __name__ == '__main__':
     backup_database()
     # 2. 初始化数据库
     init_database()
-    # 3. 导入现有JSON历史数据（首次运行兼容，重复运行无影响）
+    # 3. 导入现有JSON历史数据（仅导入完整数据）
     import_existing_json_to_db()
-    # 4. 增量爬取缺失数据
+    # 4. 严格顺序增量爬取（绝不跳日、绝不缺数据）
     incremental_crawl()
     # 5. 导出最新全量数据到JSON，供前端使用
     export_db_to_json()
