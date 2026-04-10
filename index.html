@@ -258,8 +258,8 @@
             chart.on('click', function(params) {
                 const clickIndex = params.dataIndex;
                 // 取点击位置前后5个数据，缩小区间突出波动
-                const startIdx = Math.max(0, clickIndex - 5);
-                const endIdx = Math.min(data.length - 1, clickIndex + 5);
+                const startIdx = Math.max(0, clickIndex - 10);
+                const endIdx = Math.min(data.length - 1, clickIndex + 10);
                 const rangeData = data.slice(startIdx, endIdx + 1);
                 const localMin = Math.min(...rangeData) * 0.995;
                 const localMax = Math.max(...rangeData) * 1.005;
