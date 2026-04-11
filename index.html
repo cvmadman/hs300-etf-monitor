@@ -129,11 +129,18 @@
             font-size: 12px; 
             line-height: 1.5; 
         }
+        .loading, .error {
+            text-align: center;
+            padding: 100px 20px;
+            font-size: 16px;
+        }
+        .loading { color: #6b7280; }
+        .error { color: #ef4444; }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 左侧固定菜单（带当日变动百分比） -->
+        <!-- 左侧固定菜单（完全保留原始名称） -->
         <div class="sidebar">
             <div class="sidebar-title">ETF选择</div>
             <div class="menu-list">
@@ -204,11 +211,14 @@
                 </div>
             </div>
 
-            <!-- 折线图 + 柱状图 -->
-            <div id="chart"></div>
-            <div id="barChart"></div>
+            <div id="loading" class="loading">正在加载数据，请稍候...</div>
+            <div id="error" class="error" style="display: none;"></div>
 
-            <div class="data-table">
+            <!-- 折线图 + 柱状图 -->
+            <div id="chart" style="display: none;"></div>
+            <div id="barChart" style="display: none; margin-top: 10px;"></div>
+
+            <div class="data-table" id="dataTableWrapper" style="display: none; margin-top: 25px;">
                 <h3>日度数据明细</h3>
                 <table id="dataTable">
                     <thead>
@@ -222,7 +232,7 @@
                 </table>
             </div>
 
-            <div class="source-note">
+            <div class="source-note" id="sourceNote" style="display: none;">
                 <strong>说明：</strong>本工具每日18:00自动从上海证券交易所官网抓取最新清算后份额数据，覆盖2024-09-01以来所有交易日，数据100%来自上交所官方披露。
             </div>
         </div>
@@ -240,7 +250,7 @@
             510300: [], 510310: [], 510330: [], 510360: [],
             510350: [], 510390: [], 510320: [], 510380: [], 510370: []
         };
-        // ETF名称映射
+        // ETF名称映射（完全保留原始名称）
         const etfNames = {
             total: '9只合计总份额',
             510300: '510300 华泰柏瑞沪深300ETF',510310: '510310 易方达沪深300ETF',
@@ -254,12 +264,97 @@
         let currentStart = GLOBAL_START_DATE;
         let currentEnd;
 
+        // 显示错误
+        function showError(msg) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').textContent = msg;
+            console.error(msg);
+        }
+
+        // 标准化数据：自动排序日期，保证从旧到新，兼容后端各种输出顺序
+        function normalizeData(rawData) {
+            if (!rawData.dates || !rawData.dates.length) {
+                throw new Error('数据中没有日期信息，请检查后端导出的JSON文件');
+            }
+
+            // 1. 生成索引排序，把日期从小到大排
+            const indices = rawData.dates.map((date, idx) => ({ date, idx }))
+                .sort((a, b) => a.date.localeCompare(b.date))
+                .map(item => item.idx);
+
+            // 2. 重新排序所有数据
+            const normalized = { dates: [], total: [] };
+            for (const code of Object.keys(allData)) {
+                normalized[code] = [];
+            }
+
+            for (const newIdx of indices) {
+                normalized.dates.push(rawData.dates[newIdx]);
+                normalized.total.push(rawData.total[newIdx]);
+                for (const code of Object.keys(allData)) {
+                    if (code === 'dates' || code === 'total') continue;
+                    if (rawData[code] && rawData[code][newIdx] !== undefined) {
+                        normalized[code].push(rawData[code][newIdx]);
+                    } else {
+                        normalized[code].push(null);
+                    }
+                }
+            }
+
+            // 3. 校验数据长度
+            const len = normalized.dates.length;
+            for (const key of Object.keys(normalized)) {
+                if (normalized[key].length !== len) {
+                    console.warn(`${key} 数据长度不匹配，预期${len}，实际${normalized[key].length}`);
+                }
+            }
+
+            return normalized;
+        }
+
         // 加载数据
         async function loadData() {
             try {
-                const res = await fetch('etf_data.json?' + new Date().getTime());
-                const data = await res.json();
-                Object.assign(allData, data);
+                // 强制不缓存，每次加载最新数据
+                const res = await fetch('etf_data.json?' + new Date().getTime(), {
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        throw new Error('找不到etf_data.json文件，请确认它和这个HTML文件在同一个文件夹里');
+                    } else if (res.status === 0) {
+                        throw new Error('跨域请求被阻止，请不要直接双击打开HTML，建议用本地服务器（如python -m http.server）打开，或者上传到网站服务器');
+                    } else {
+                        throw new Error(`加载失败，HTTP错误: ${res.status} ${res.statusText}`);
+                    }
+                }
+
+                const rawData = await res.json();
+                
+                // 校验数据格式
+                if (!rawData || typeof rawData !== 'object') {
+                    throw new Error('数据格式错误，不是有效的JSON文件');
+                }
+                if (!rawData.dates || !rawData.total) {
+                    throw new Error('数据格式不匹配，缺少dates或total字段，请确认是正确的etf_data.json');
+                }
+
+                // 标准化数据，自动排序日期，兼容后端各种输出顺序
+                const normalizedData = normalizeData(rawData);
+                // 赋值到全局
+                Object.assign(allData, normalizedData);
+
+                // 检查数据是否为空
+                if (!allData.dates.length) {
+                    throw new Error('没有有效的历史数据');
+                }
+
                 currentEnd = allData.dates[allData.dates.length-1];
                 // 初始化日期输入框
                 document.getElementById('startDate').value = currentStart;
@@ -270,9 +365,17 @@
                 renderAll();
                 // 更新时间
                 document.getElementById('updateInfo').textContent = `最后更新：${currentEnd} 18:00:00`;
+
+                // 隐藏加载，显示内容
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('chart').style.display = 'block';
+                document.getElementById('barChart').style.display = 'block';
+                document.getElementById('dataTableWrapper').style.display = 'block';
+                document.getElementById('sourceNote').style.display = 'block';
+
             } catch(e) {
-                console.error('数据加载失败', e);
-                alert('数据加载失败，请检查etf_data.json文件是否存在');
+                showError(`数据加载失败: ${e.message}`);
+                console.error('加载数据失败详情:', e);
             }
         }
 
@@ -281,8 +384,16 @@
             const keys = ['total', '510300', '510310', '510330', '510360', '510350', '510390', '510320', '510380', '510370'];
             keys.forEach(key => {
                 const d = allData[key];
+                if (!d || d.length < 2) {
+                    document.getElementById(`pct-${key}`).textContent = '无数据';
+                    return;
+                }
                 const last = d[d.length-1];
                 const prev = d[d.length-2];
+                if (prev === 0) {
+                    document.getElementById(`pct-${key}`).textContent = '-';
+                    return;
+                }
                 const pct = ((last - prev) / prev) * 100;
                 const el = document.getElementById(`pct-${key}`);
                 el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
@@ -312,9 +423,14 @@
                 if(i===0) { changePercent.push(null); colors.push('transparent'); }
                 else {
                     const p = data[i-1], c = data[i];
-                    const per = ((c-p)/p)*100;
-                    changePercent.push(per);
-                    colors.push(per >=0 ? '#ef4444' : '#10b981');
+                    if(p === 0) {
+                        changePercent.push(null);
+                        colors.push('transparent');
+                    } else {
+                        const per = ((c-p)/p)*100;
+                        changePercent.push(per);
+                        colors.push(per >=0 ? '#ef4444' : '#10b981');
+                    }
                 }
             }
             return { changePercent, colors };
@@ -323,7 +439,12 @@
         // 渲染折线图（纯直线）
         function renderChart(key, start, end) {
             const { dates, values } = filterRangeData(key, start, end);
-            const min = Math.min(...values)*0.99, max = Math.max(...values)*1.01;
+            if (!dates.length) {
+                alert('该区间没有数据');
+                return;
+            }
+            const validValues = values.filter(v => v !== null && v !== undefined);
+            const min = Math.min(...validValues)*0.99, max = Math.max(...validValues)*1.01;
             const opt = {
                 title:{text:etfNames[key]+' 份额趋势',left:'center',textStyle:{color:'#1f2937'}},
                 tooltip:{trigger:'axis',formatter:p=>`日期：${p[0].axisValue}<br/>份额：${p[0].value.toFixed(4)}亿份`},
@@ -343,8 +464,10 @@
             chart.on('click', function(params) {
                 const idx = params.dataIndex;
                 const s = Math.max(0, idx-5), e = Math.min(values.length-1, idx+5);
-                const rd = values.slice(s,e+1);
-                chart.setOption({yAxis:{min:Math.min(...rd)*0.995,max:Math.max(...rd)*1.005}});
+                const rd = values.slice(s,e+1).filter(v => v !== null);
+                if (rd.length) {
+                    chart.setOption({yAxis:{min:Math.min(...rd)*0.995,max:Math.max(...rd)*1.005}});
+                }
             });
         }
 
@@ -375,7 +498,9 @@
             const { dates, values } = filterRangeData(key, start, end);
             const tb = document.getElementById('tableBody'); tb.innerHTML='';
             for(let i=dates.length-1;i>=0;i--){
-                const cv = values[i], pv = i>0?values[i-1]:cv;
+                const cv = values[i];
+                if (cv === null) continue;
+                const pv = i>0?values[i-1]:cv;
                 const ch = cv-pv;
                 tb.innerHTML += `<tr>
                     <td>${dates[i]}</td>
@@ -421,6 +546,10 @@
             }
             if(startIdx >=0 && endIdx >=0) {
                 const startVal = d[startIdx], endVal = d[endIdx];
+                if (startVal === 0) {
+                    alert('区间起始数据为0，无法计算变动');
+                    return;
+                }
                 const change = endVal - startVal;
                 const pct = ((endVal - startVal) / startVal) * 100;
                 alert(`区间统计：
