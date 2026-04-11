@@ -3,706 +3,356 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>沪深300ETF份额追踪</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Microsoft YaHei', Arial, sans-serif;
-            background-color: #f5f5f5;
-            padding: 10px;
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        
-        h1 {
-            text-align: center;
-            color: #333;
-            padding: 20px;
-            margin-bottom: 0;
-        }
-        
-        .header-controls {
-            padding: 15px 20px;
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #dee2e6;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            align-items: center;
-        }
-        
-        .date-range-selector {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .date-range-selector input {
-            padding: 6px 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        
-        .interval-info {
-            background-color: #e7f3ff;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-size: 14px;
-            font-weight: bold;
-        }
-        
-        .content-wrapper {
-            display: flex;
-            min-height: 600px;
-        }
-        
-        .sidebar {
-            width: 250px;
-            background-color: #f8f9fa;
-            border-right: 1px solid #dee2e6;
-            padding: 15px;
-            overflow-y: auto;
-        }
-        
-        .etf-list {
-            list-style: none;
-        }
-        
-        .etf-item {
-            padding: 12px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .etf-item:hover {
-            background-color: #e9ecef;
-        }
-        
-        .etf-item.active {
-            background-color: #007bff;
-            color: white;
-        }
-        
-        .etf-name {
-            font-size: 14px;
-        }
-        
-        .etf-change {
-            font-size: 12px;
-            font-weight: bold;
-        }
-        
-        .change-up {
-            color: #dc3545;
-        }
-        
-        .change-down {
-            color: #28a745;
-        }
-        
-        .main-content {
-            flex: 1;
-            padding: 20px;
-        }
-        
-        .chart-container {
-            position: relative;
-            height: 400px;
-            margin-bottom: 30px;
-        }
-        
-        .bar-chart-container {
-            position: relative;
-            height: 200px;
-        }
-        
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        
-        .data-table th, .data-table td {
-            border: 1px solid #ddd;
-            padding: 10px;
-            text-align: right;
-        }
-        
-        .data-table th {
-            background-color: #f2f2f2;
-        }
-        
-        .data-table tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        
-        .summary-row {
-            background-color: #e6f7ff !important;
-            font-weight: bold;
-        }
-        
-        .status {
-            padding: 10px 15px;
-            background-color: #e6f7ff;
-            border: 1px solid #91d5ff;
-            margin: 10px 20px;
-            border-radius: 4px;
-        }
-        
-        .info-box {
-            background-color: #fffbe6;
-            border: 1px solid #ffe58f;
-            border-radius: 4px;
-            padding: 10px;
-            margin: 0 20px 15px;
-        }
-        
-        /* 移动端适配 */
-        @media (max-width: 768px) {
-            .content-wrapper {
-                flex-direction: column;
-            }
-            
-            .sidebar {
-                width: 100%;
-                border-right: none;
-                border-bottom: 1px solid #dee2e6;
-                max-height: 300px;
-            }
-            
-            .header-controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .date-range-selector {
-                justify-content: center;
-            }
-            
-            .chart-container {
-                height: 300px;
-            }
-            
-            .bar-chart-container {
-                height: 150px;
-            }
-            
-            .data-table {
-                font-size: 12px;
-            }
-            
-            .data-table th, .data-table td {
-                padding: 5px;
+    <title>沪深300ETF份额变化监控</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        rise: '#F53F3F',
+                        fall: '#00B42A',
+                    },
+                }
             }
         }
-        
-        .etf-code {
-            font-size: 11px;
-            opacity: 0.7;
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .menu-item-active {
+                @apply bg-primary/10 text-primary border-l-4 border-primary;
+            }
+            .menu-item {
+                @apply px-4 py-2 cursor-pointer hover:bg-gray-100 transition-all;
+            }
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>沪深300ETF份额追踪</h1>
-        
-        <div class="info-box">
-            <strong>数据来源：</strong>上交所官网 - 基金数据 - ETF份额变动
-        </div>
-        
-        <div class="header-controls">
-            <div class="date-range-selector">
-                <label>起始日期: <input type="date" id="startDate" value="2024-09-01"></label>
-                <label>结束日期: <input type="date" id="endDate" value=""></label>
-                <button id="applyRangeBtn" class="btn">应用区间</button>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold text-gray-800 mb-4">沪深300ETF份额变化监控</h1>
+        <p class="text-gray-500 text-sm mb-4">数据来源：上海证券交易所官网 | 最后更新：<span id="last_update">--</span></p>
+
+        <!-- 顶部控制栏 -->
+        <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-4 items-center">
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-600">开始日期：</label>
+                <input type="date" id="start_date" class="border rounded px-2 py-1 text-sm">
             </div>
-            <div class="interval-info" id="intervalInfo">
-                区间变动: 0.00% (0.00亿份)
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-600">结束日期：</label>
+                <input type="date" id="end_date" class="border rounded px-2 py-1 text-sm">
             </div>
-        </div>
-        
-        <div class="status" id="statusMessage">
-            系统就绪 - 正在加载数据...
-        </div>
-        
-        <div class="content-wrapper">
-            <div class="sidebar">
-                <ul class="etf-list" id="etfList">
-                    <!-- ETF项目将动态生成 -->
-                </ul>
-            </div>
+            <button id="apply_date" class="bg-primary text-white px-4 py-1 rounded text-sm hover:bg-primary/90">应用区间</button>
             
-            <div class="main-content">
-                <div class="chart-container">
-                    <canvas id="lineChart"></canvas>
+            <div id="range_info" class="ml-auto text-sm hidden">
+                <span class="text-gray-600">选中区间变动：</span>
+                <span id="range_change" class="font-semibold"></span>
+                <span id="range_pct" class="font-semibold"></span>
+            </div>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-4">
+            <!-- 左侧菜单 -->
+            <div class="w-full md:w-64 bg-white rounded-lg shadow p-2 flex-shrink-0">
+                <h2 class="text-lg font-semibold px-4 py-2 border-b">ETF产品列表</h2>
+                <div id="etf_menu" class="mt-2">
+                    <!-- 菜单动态生成 -->
                 </div>
-                
-                <div class="bar-chart-container">
-                    <canvas id="barChart"></canvas>
-                </div>
-                
-                <table class="data-table" id="dataTable">
-                    <thead>
-                        <tr>
-                            <th style="text-align: left;">ETF名称</th>
-                            <th>基金代码</th>
-                            <th>最新份额 (万份)</th>
-                            <th>最新日期</th>
-                            <th>当日变动 (万份)</th>
-                            <th>当日变动率 (%)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tableBody">
-                        <!-- 数据将动态填充 -->
-                    </tbody>
-                </table>
+            </div>
+
+            <!-- 右侧图表 -->
+            <div class="flex-1 bg-white rounded-lg shadow p-4">
+                <div id="chart" class="w-full" style="height: 600px;"></div>
             </div>
         </div>
     </div>
 
     <script>
-        // 模拟数据结构 - 实际应用中应从后端API获取
-        let historicalData = {};
-        let etfList = []; // 动态从数据中获取
-        let selectedEtf = '510300'; // 默认选择第一个
-        let lineChart = null;
-        let barChart = null;
-
-        // 初始化日期
-        document.getElementById('endDate').valueAsDate = new Date();
-
-        // 模拟从数据库加载数据
-        function loadDataFromDB() {
-            // 这里应该是从后端API获取数据
-            // 模拟数据 - 在实际应用中会被真实数据替换
-            etfList = [
-                { code: '510300', name: '华泰柏瑞沪深300ETF' },
-                { code: '510330', name: '华夏沪深300ETF' },
-                { code: '510310', name: '易方达沪深300ETF' },
-                { code: '510360', name: '工银瑞信沪深300ETF' },
-                { code: '510390', name: '大成沪深300ETF' },
-                { code: '510320', name: '嘉实沪深300ETF' },
-                { code: '510380', name: '国泰沪深300ETF' },
-                { code: '510370', name: '广发沪深300ETF' },
-                { code: '510350', name: '博时沪深300ETF' }
-            ];
-
-            // 生成模拟历史数据
-            const startDate = new Date('2024-09-01');
-            const endDate = new Date();
-            const dates = [];
-
-            // 生成交易日历（跳过周末）
-            let currentDate = new Date(startDate);
-            while (currentDate <= endDate) {
-                const dayOfWeek = currentDate.getDay();
-                if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-                    dates.push(currentDate.toISOString().split('T')[0]);
-                }
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-
-            // 为每个ETF生成数据
-            etfList.forEach(etf => {
-                historicalData[etf.code] = {};
-                
-                let baseShares = 10000 + Math.random() * 90000; // 初始份额
-                dates.forEach(date => {
-                    const changePercent = (Math.random() - 0.5) * 0.03;
-                    baseShares = Math.max(baseShares * (1 + changePercent), 1000);
-                    historicalData[etf.code][date] = parseFloat(baseShares.toFixed(0));
-                });
-            });
-
-            document.getElementById('statusMessage').textContent = '数据加载完成，正在更新界面...';
-            updateSidebar();
-            updateTable();
-            renderCharts();
-        }
-
-        // 获取最新日期
-        function getLatestDate() {
-            const dates = Object.keys(historicalData[Object.keys(historicalData)[0]] || {});
-            return dates.length > 0 ? dates[dates.length - 1] : '';
-        }
-
-        // 获取前一个交易日
-        function getPreviousTradingDay(dateStr) {
-            const dates = Object.keys(historicalData[Object.keys(historicalData)[0]] || {}).sort();
-            const currentIndex = dates.indexOf(dateStr);
-            return currentIndex > 0 ? dates[currentIndex - 1] : dateStr;
-        }
-
-        // 计算总计份额
-        function calculateTotalShares(dateStr) {
-            return etfList.reduce((sum, etf) => sum + (historicalData[etf.code]?.[dateStr] || 0), 0);
-        }
-
-        // 更新侧边栏
-        function updateSidebar() {
-            const sidebar = document.getElementById('etfList');
-            sidebar.innerHTML = '';
-
-            // 添加ETF列表
-            etfList.forEach(etf => {
-                const li = document.createElement('li');
-                li.className = 'etf-item';
-                if (etf.code === selectedEtf) {
-                    li.classList.add('active');
-                }
-                
-                const latestDate = getLatestDate();
-                const currentShares = historicalData[etf.code]?.[latestDate] || 0;
-                
-                const prevDate = getPreviousTradingDay(latestDate);
-                const prevShares = historicalData[etf.code]?.[prevDate] || currentShares;
-                
-                const change = currentShares - prevShares;
-                const changePercent = prevShares !== 0 ? ((change / prevShares) * 100).toFixed(2) : 0;
-                
-                const changeClass = change >= 0 ? 'change-up' : 'change-down';
-                
-                li.innerHTML = `
-                    <div class="etf-name">
-                        <div>${etf.name}</div>
-                        <div class="etf-code">${etf.code}</div>
-                    </div>
-                    <div class="etf-change ${changeClass}">
-                        ${change >= 0 ? '+' : ''}${changePercent}%
-                    </div>
-                `;
-                
-                li.addEventListener('click', () => {
-                    document.querySelectorAll('.etf-item').forEach(item => item.classList.remove('active'));
-                    li.classList.add('active');
-                    selectedEtf = etf.code;
-                    renderCharts();
-                });
-                
-                sidebar.appendChild(li);
-            });
-
-            // 添加总计项
-            const totalItem = { code: 'TOTAL', name: '沪深300ETF总份额' };
-            const totalLi = document.createElement('li');
-            totalLi.className = 'etf-item';
-            if (selectedEtf === 'TOTAL') {
-                totalLi.classList.add('active');
-            }
-            
-            const latestDate = getLatestDate();
-            const currentTotal = calculateTotalShares(latestDate);
-            
-            const prevDate = getPreviousTradingDay(latestDate);
-            const prevTotal = calculateTotalShares(prevDate);
-            
-            const change = currentTotal - prevTotal;
-            const changePercent = prevTotal !== 0 ? ((change / prevTotal) * 100).toFixed(2) : 0;
-            
-            const changeClass = change >= 0 ? 'change-up' : 'change-down';
-            
-            totalLi.innerHTML = `
-                <div class="etf-name">
-                    <div>${totalItem.name}</div>
-                    <div class="etf-code">总计</div>
-                </div>
-                <div class="etf-change ${changeClass}">
-                    ${change >= 0 ? '+' : ''}${changePercent}%
-                </div>
-            `;
-            
-            totalLi.addEventListener('click', () => {
-                document.querySelectorAll('.etf-item').forEach(item => item.classList.remove('active'));
-                totalLi.classList.add('active');
-                selectedEtf = 'TOTAL';
-                renderCharts();
-            });
-            
-            sidebar.appendChild(totalLi);
-        }
-
-        // 更新表格
-        function updateTable() {
-            const tableBody = document.getElementById('tableBody');
-            tableBody.innerHTML = '';
-
-            const latestDate = getLatestDate();
-            if (!latestDate) return;
-
-            // 各ETF数据
-            etfList.forEach(etf => {
-                const currentShares = historicalData[etf.code]?.[latestDate] || 0;
-                
-                const prevDate = getPreviousTradingDay(latestDate);
-                const prevShares = historicalData[etf.code]?.[prevDate] || 0;
-                const change = currentShares - prevShares;
-                const changePercent = prevShares !== 0 ? ((change / prevShares) * 100).toFixed(2) : 0;
-
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td style="text-align: left;">${etf.name}</td>
-                    <td>${etf.code}</td>
-                    <td>${currentShares.toLocaleString()}</td>
-                    <td>${latestDate}</td>
-                    <td style="color: ${change >= 0 ? '#dc3545' : '#28a745'}">
-                        ${change >= 0 ? '+' : ''}${change.toLocaleString()}
-                    </td>
-                    <td style="color: ${change >= 0 ? '#dc3545' : '#28a745'}">
-                        ${change >= 0 ? '+' : ''}${changePercent}%
-                    </td>
-                `;
-                tableBody.appendChild(row);
-            });
-
-            // 总计行
-            const prevDate = getPreviousTradingDay(latestDate);
-            const totalShares = calculateTotalShares(latestDate);
-            const prevTotal = calculateTotalShares(prevDate);
-            const totalChange = totalShares - prevTotal;
-            const totalChangePercent = prevTotal !== 0 ? ((totalChange / prevTotal) * 100).toFixed(2) : 0;
-
-            const totalRow = document.createElement('tr');
-            totalRow.className = 'summary-row';
-            totalRow.innerHTML = `
-                <td style="text-align: left;"><strong>合计</strong></td>
-                <td><strong>总计</strong></td>
-                <td><strong>${totalShares.toLocaleString()}</strong></td>
-                <td><strong>${latestDate}</strong></td>
-                <td style="color: ${totalChange >= 0 ? '#dc3545' : '#28a745'}">
-                    <strong>${totalChange >= 0 ? '+' : ''}${totalChange.toLocaleString()}</strong>
-                </td>
-                <td style="color: ${totalChange >= 0 ? '#dc3545' : '#28a745'}">
-                    <strong>${totalChange >= 0 ? '+' : ''}${totalChangePercent}%</strong>
-                </td>
-            `;
-            tableBody.appendChild(totalRow);
-        }
-
-        // 渲染图表
-        function renderCharts() {
-            renderLineChart();
-            renderBarChart();
-            updateIntervalInfo();
-        }
-
-        // 渲染折线图
-        function renderLineChart() {
-            const ctx = document.getElementById('lineChart').getContext('2d');
-
-            if (lineChart) {
-                lineChart.destroy();
-            }
-
-            const startDate = document.getElementById('startDate').value || '2024-09-01';
-            const endDate = document.getElementById('endDate').value || new Date().toISOString().split('T')[0];
-
-            const allDates = Object.keys(historicalData[Object.keys(historicalData)[0]] || {}).sort();
-            const filteredDates = allDates.filter(date => date >= startDate && date <= endDate);
-
-            let data, label;
-            
-            if (selectedEtf === 'TOTAL') {
-                // 显示总计数据
-                data = filteredDates.map(date => calculateTotalShares(date));
-                label = '沪深300ETF总份额';
-            } else {
-                // 显示单个ETF数据
-                data = filteredDates.map(date => historicalData[selectedEtf]?.[date] || null);
-                label = `${etfList.find(e => e.code === selectedEtf)?.name} (${selectedEtf})`;
-            }
-
-            lineChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: filteredDates,
-                    datasets: [{
-                        label: label,
-                        data: data,
-                        borderColor: '#36A2EB',
-                        backgroundColor: '#36A2EB20',
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        tension: 0, // 直线，无平滑
-                        spanGaps: true
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: '份额变动趋势 (万份)'
-                        },
-                        legend: {
-                            display: true,
-                            position: 'top'
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: '日期'
-                            },
-                            ticks: {
-                                maxRotation: 45,
-                                minRotation: 45
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: '份额 (万份)'
-                            }
-                        }
-                    },
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
-                    }
-                }
-            });
-        }
-
-        // 渲染柱状图 - 显示当日份额流入流出百分比
-        function renderBarChart() {
-            const ctx = document.getElementById('barChart').getContext('2d');
-
-            if (barChart) {
-                barChart.destroy();
-            }
-
-            const startDate = document.getElementById('startDate').value || '2024-09-01';
-            const endDate = document.getElementById('endDate').value || new Date().toISOString().split('T')[0];
-
-            const allDates = Object.keys(historicalData[Object.keys(historicalData)[0]] || {}).sort();
-            const filteredDates = allDates.filter(date => date >= startDate && date <= endDate);
-
-            let dailyChanges = [];
-            let barLabels = [];
-            
-            if (selectedEtf === 'TOTAL') {
-                // 计算总计的每日变动百分比
-                for (let i = 1; i < filteredDates.length; i++) {
-                    const currentDate = filteredDates[i];
-                    const prevDate = filteredDates[i - 1];
-                    
-                    const currentTotal = calculateTotalShares(currentDate);
-                    const prevTotal = calculateTotalShares(prevDate);
-                    
-                    const changePercent = prevTotal !== 0 ? ((currentTotal - prevTotal) / prevTotal) * 100 : 0;
-                    dailyChanges.push(changePercent);
-                    barLabels.push(currentDate);
-                }
-            } else {
-                // 计算单个ETF的每日变动百分比
-                for (let i = 1; i < filteredDates.length; i++) {
-                    const currentDate = filteredDates[i];
-                    const prevDate = filteredDates[i - 1];
-                    
-                    const currentShares = historicalData[selectedEtf]?.[currentDate] || 0;
-                    const prevShares = historicalData[selectedEtf]?.[prevDate] || 0;
-                    
-                    const changePercent = prevShares !== 0 ? ((currentShares - prevShares) / prevShares) * 100 : 0;
-                    dailyChanges.push(changePercent);
-                    barLabels.push(currentDate);
-                }
-            }
-
-            barChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: barLabels,
-                    datasets: [{
-                        label: '当日变动率 (%)',
-                        data: dailyChanges,
-                        backgroundColor: dailyChanges.map(value => value >= 0 ? '#dc3545' : '#28a745'),
-                        borderColor: dailyChanges.map(value => value >= 0 ? '#dc3545' : '#28a745'),
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: '份额当日变动率 (%)'
-                        }
-                    },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: '日期'
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: '变动率 (%)'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        // 更新区间信息
-        function updateIntervalInfo() {
-            const startDate = document.getElementById('startDate').value || '2024-09-01';
-            const endDate = document.getElementById('endDate').value || new Date().toISOString().split('T')[0];
-
-            let startData, endData;
-            
-            if (selectedEtf === 'TOTAL') {
-                startData = calculateTotalShares(startDate);
-                endData = calculateTotalShares(endDate);
-            } else {
-                startData = historicalData[selectedEtf]?.[startDate] || 0;
-                endData = historicalData[selectedEtf]?.[endDate] || 0;
-            }
-
-            const change = endData - startData;
-            const changePercent = startData !== 0 ? ((change / startData) * 100).toFixed(2) : 0;
-
-            document.getElementById('intervalInfo').innerHTML = `
-                区间变动: <span style="color: ${change >= 0 ? '#dc3545' : '#28a745'}">${change >= 0 ? '+' : ''}${changePercent}%</span> 
-                (${change >= 0 ? '+' : ''}${(change / 10000).toFixed(2)} 亿份)
-            `;
-        }
-
-        // 事件监听器
-        document.getElementById('applyRangeBtn').addEventListener('click', () => {
-            renderCharts();
-        });
-
-        document.getElementById('startDate').addEventListener('change', renderCharts);
-        document.getElementById('endDate').addEventListener('change', renderCharts);
+        let rawData = null;
+        let selectedEtf = null;
+        let chart = null;
 
         // 初始化
-        window.addEventListener('load', () => {
-            loadDataFromDB();
-        });
+        async function init() {
+            // 加载数据
+            try {
+                const resp = await fetch('data/etf_share_data.json');
+                rawData = await resp.json();
+                document.getElementById('last_update').textContent = rawData.last_update;
+                
+                // 初始化日期选择器
+                initDatePicker();
+                
+                // 生成菜单
+                generateMenu();
+                
+                // 默认选中第一个ETF
+                const firstCode = Object.keys(rawData.etfs)[0];
+                selectEtf(firstCode);
+                
+                // 初始化图表
+                initChart();
+            } catch (e) {
+                alert('数据加载失败，请稍后重试');
+                console.error(e);
+            }
+        }
+
+        // 初始化日期选择器
+        function initDatePicker() {
+            // 获取所有日期
+            let allDates = [];
+            for (let code in rawData.etfs) {
+                allDates = allDates.concat(rawData.etfs[code].data.map(d => d.date));
+            }
+            allDates = [...new Set(allDates)].sort();
+            const minDate = allDates[0];
+            const maxDate = allDates[allDates.length - 1];
+            
+            document.getElementById('start_date').min = minDate;
+            document.getElementById('start_date').max = maxDate;
+            document.getElementById('end_date').min = minDate;
+            document.getElementById('end_date').max = maxDate;
+            
+            // 默认选全部
+            document.getElementById('start_date').value = minDate;
+            document.getElementById('end_date').value = maxDate;
+        }
+
+        // 生成左侧菜单
+        function generateMenu() {
+            const menuEl = document.getElementById('etf_menu');
+            menuEl.innerHTML = '';
+            
+            for (let code in rawData.etfs) {
+                const etf = rawData.etfs[code];
+                const data = etf.data;
+                if (data.length < 2) continue;
+                
+                // 计算当日变动
+                const last = data[data.length - 1];
+                const prev = data[data.length - 2];
+                const change = last.share - prev.share;
+                const pct = (change / prev.share) * 100;
+                
+                // 颜色
+                const isRise = pct >= 0;
+                const colorClass = isRise ? 'text-rise' : 'text-fall';
+                const pctText = isRise ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+                
+                const item = document.createElement('div');
+                item.className = `menu-item ${selectedEtf === code ? 'menu-item-active' : ''}`;
+                item.dataset.code = code;
+                item.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span>${etf.name}</span>
+                        <span class="${colorClass} text-sm font-medium">${pctText}</span>
+                    </div>
+                `;
+                item.onclick = () => selectEtf(code);
+                menuEl.appendChild(item);
+            }
+        }
+
+        // 选中ETF
+        function selectEtf(code) {
+            selectedEtf = code;
+            // 更新菜单选中状态
+            document.querySelectorAll('.menu-item').forEach(el => {
+                el.classList.remove('menu-item-active');
+                if (el.dataset.code === code) {
+                    el.classList.add('menu-item-active');
+                }
+            });
+            // 更新图表
+            updateChart();
+        }
+
+        // 初始化图表
+        function initChart() {
+            const chartDom = document.getElementById('chart');
+            chart = echarts.init(chartDom);
+            window.addEventListener('resize', () => chart.resize());
+            
+            // 日期区间应用
+            document.getElementById('apply_date').onclick = () => {
+                updateChart();
+            };
+            
+            updateChart();
+        }
+
+        // 更新图表
+        function updateChart() {
+            if (!chart || !selectedEtf || !rawData) return;
+            
+            const etf = rawData.etfs[selectedEtf];
+            let data = etf.data;
+            
+            // 过滤日期区间
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            if (startDate && endDate) {
+                data = data.filter(d => d.date >= startDate && d.date <= endDate);
+            }
+            
+            if (data.length < 2) {
+                alert('选中区间没有足够的数据');
+                return;
+            }
+            
+            // 计算区间变动
+            const first = data[0];
+            const last = data[data.length - 1];
+            const rangeChange = last.share - first.share;
+            const rangePct = (rangeChange / first.share) * 100;
+            const isRangeRise = rangePct >= 0;
+            const rangeColor = isRangeRise ? 'text-rise' : 'text-fall';
+            const rangeChangeText = isRangeRise ? `+${(rangeChange/10000).toFixed(2)}亿份` : `${(rangeChange/10000).toFixed(2)}亿份`;
+            const rangePctText = isRangeRise ? `+${rangePct.toFixed(2)}%` : `${rangePct.toFixed(2)}%`;
+            
+            document.getElementById('range_info').classList.remove('hidden');
+            document.getElementById('range_change').textContent = rangeChangeText;
+            document.getElementById('range_change').className = `font-semibold ${rangeColor}`;
+            document.getElementById('range_pct').textContent = rangePctText;
+            document.getElementById('range_pct').className = `font-semibold ${rangeColor}`;
+            
+            // 计算每日变动百分比
+            const dates = [];
+            const shares = [];
+            const dailyChanges = [];
+            const barColors = [];
+            
+            for (let i = 0; i < data.length; i++) {
+                dates.push(data[i].date);
+                shares.push(data[i].share);
+                
+                if (i > 0) {
+                    const prev = data[i-1].share;
+                    const curr = data[i].share;
+                    const pct = ((curr - prev) / prev) * 100;
+                    dailyChanges.push(pct);
+                    barColors.push(pct >= 0 ? '#F53F3F' : '#00B42A');
+                } else {
+                    dailyChanges.push(null);
+                    barColors.push(null);
+                }
+            }
+            
+            // 更新图表
+            const option = {
+                title: {
+                    text: `${etf.name} 份额变化`,
+                    left: 'center'
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    }
+                },
+                legend: {
+                    data: ['总份额(万份)', '当日变动(%)'],
+                    top: 30
+                },
+                grid: [
+                    {
+                        left: '3%',
+                        right: '4%',
+                        top: 80,
+                        height: '40%'
+                    },
+                    {
+                        left: '3%',
+                        right: '4%',
+                        top: '55%',
+                        height: '30%',
+                        bottom: 60
+                    }
+                ],
+                xAxis: [
+                    {
+                        type: 'category',
+                        gridIndex: 0,
+                        data: dates,
+                        axisLabel: {
+                            rotate: 30
+                        }
+                    },
+                    {
+                        type: 'category',
+                        gridIndex: 1,
+                        data: dates,
+                        axisLabel: {
+                            rotate: 30
+                        }
+                    }
+                ],
+                yAxis: [
+                    {
+                        type: 'value',
+                        gridIndex: 0,
+                        name: '总份额(万份)',
+                        axisLabel: {
+                            formatter: '{value}'
+                        }
+                    },
+                    {
+                        type: 'value',
+                        gridIndex: 1,
+                        name: '当日变动(%)',
+                        axisLabel: {
+                            formatter: '{value}%'
+                        }
+                    }
+                ],
+                dataZoom: [
+                    {
+                        type: 'slider',
+                        xAxisIndex: [0, 1],
+                        start: 0,
+                        end: 100
+                    }
+                ],
+                series: [
+                    {
+                        name: '总份额(万份)',
+                        type: 'line',
+                        xAxisIndex: 0,
+                        yAxisIndex: 0,
+                        data: shares,
+                        smooth: false, // 纯直线，无平滑
+                        lineStyle: {
+                            width: 2,
+                            color: '#165DFF'
+                        },
+                        symbol: 'none'
+                    },
+                    {
+                        name: '当日变动(%)',
+                        type: 'bar',
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: dailyChanges,
+                        itemStyle: {
+                            color: function(params) {
+                                return barColors[params.dataIndex];
+                            }
+                        }
+                    }
+                ]
+            };
+            
+            chart.setOption(option, true);
+        }
+
+        // 页面加载完成后初始化
+        window.onload = init;
     </script>
 </body>
 </html>
