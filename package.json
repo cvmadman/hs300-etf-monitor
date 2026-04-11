@@ -1,0 +1,30 @@
+{
+  "name": "沪深300ETF份额追踪系统",
+  "version": "1.0.0",
+  "description": "用于追踪沪深300ETF份额变动的可视化系统",
+  "author": "ETF Tracker",
+  "scripts": {
+    "start": "python scraper.py",
+    "scrape": "python scraper.py full",
+    "update": "python scraper.py daily",
+    "schedule": "python scraper.py schedule"
+  },
+  "dependencies": {
+    "requests": "^2.25.1",
+    "beautifulsoup4": "^4.9.3",
+    "sqlite3": "^2.5.0",
+    "schedule": "^1.1.0"
+  },
+  "keywords": [
+    "etf",
+    "fund",
+    "tracking",
+    "visualization",
+    "finance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/etf-tracker.git"
+  }
+}
