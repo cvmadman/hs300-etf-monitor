@@ -1,24 +1,36 @@
-name: Update ETF Data
+name: Update ETF Share Data
 
+# 定时触发：每天UTC 10点 = 北京时间18点
+# 同时支持手动触发
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  schedule:
+    - cron: '0 10 * * *'
+  workflow_dispatch:
 
 jobs:
-  deploy:
+  update-data:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
-        
-    - name: Build and Deploy
-      uses: JamesIves/github-pages-deploy-action@4.1.5
-      with:
-        branch: gh-pages
-        folder: .
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
+
+      - name: Run crawler script
+        run: python crawler/run_crawler.py
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          # 检查是否有变更
+          git add data/etf_share_data.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto update ETF data: $(date +'%Y-%m-%d')" && git push)
