@@ -4,7 +4,7 @@ name: Update ETF Share Data
 # 同时支持手动触发
 on:
   schedule:
-    - cron: '0 10 * * *'
+    - cron: '0 15 * * *'
   workflow_dispatch:
 
 jobs:
