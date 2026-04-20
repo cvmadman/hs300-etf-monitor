@@ -21,7 +21,7 @@ DB_BACKUP_FILE = 'etf_backup.db'
 # 前端兼容的JSON数据文件
 JSON_FILE = 'etf_data.json'
 # 历史数据起始日期
-START_DATE = '2024-09-01'
+START_DATE = '2026-04-01'
 # 单只ETF请求重试次数
 MAX_RETRY = 3
 # 单日完整爬取重试次数
