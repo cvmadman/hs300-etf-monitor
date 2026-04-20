@@ -1,5 +1,4 @@
 import requests
-from bs4 import BeautifulSoup
 import json
 import datetime
 import time
@@ -7,6 +6,7 @@ import sqlite3
 import os
 import logging
 import shutil
+import re
 
 # -------------------------- 全局配置项（无需修改） --------------------------
 # 9只沪深300ETF代码，与上交所官网完全匹配
@@ -30,6 +30,17 @@ MAX_DAILY_RETRY = 2
 REQUEST_INTERVAL = 0.8
 # 单日重试间隔
 DAILY_RETRY_INTERVAL = 5
+# 上交所ETF份额接口
+SSE_ETF_API_URL = 'https://query.sse.com.cn/commonQuery.do'
+# 单次接口最大返回条数，当前全量ETF约800+条，预留更大容量
+SSE_API_PAGE_SIZE = 2000
+SSE_API_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Referer': 'https://www.sse.com.cn/',
+    'Connection': 'keep-alive'
+}
 
 # -------------------------- 日志初始化 --------------------------
 logging.basicConfig(
@@ -38,6 +49,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+http_session = requests.Session()
 
 # -------------------------- 数据库核心操作 --------------------------
 def backup_database():
@@ -261,63 +273,89 @@ def import_existing_json_to_db():
     except Exception as e:
         logger.error(f'导入JSON数据失败: {e}')
 
-# -------------------------- 核心爬虫逻辑（适配上交所官网结构） --------------------------
-def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
-    """从上海证券交易所官网抓取单只ETF指定日期的份额，100%适配官网表格结构"""
-    url = f'https://www.sse.com.cn/assortment/fund/list/etfinfo/basic/index.shtml?FUNDID={code}'
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Referer': 'https://www.sse.com.cn/',
-        'Connection': 'keep-alive'
+ETF_SHARE_CACHE = {}
+
+
+def parse_jsonp_payload(raw_text: str) -> dict:
+    """解析上交所接口返回的JSONP文本"""
+    match = re.match(r'^\s*[\w$]+\((.*)\)\s*;?\s*$', raw_text, re.DOTALL)
+    if not match:
+        raise ValueError('接口返回内容不是合法JSONP')
+    return json.loads(match.group(1))
+
+
+def fetch_etf_shares_by_date(date_str: str) -> dict[str, float] | None:
+    """按日期批量获取ETF份额，再通过SEC_CODE过滤目标ETF"""
+    if date_str in ETF_SHARE_CACHE:
+        return ETF_SHARE_CACHE[date_str]
+
+    callback_name = f'jsonpCallback{int(time.time() * 1000)}'
+    params = {
+        'jsonCallBack': callback_name,
+        'isPagination': 'true',
+        'pageHelp.pageSize': SSE_API_PAGE_SIZE,
+        'pageHelp.pageNo': 1,
+        'pageHelp.beginPage': 1,
+        'pageHelp.cacheSize': 1,
+        'pageHelp.endPage': 1,
+        'sqlId': 'COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L',
+        'STAT_DATE': date_str,
+        '_': int(time.time() * 1000),
     }
 
-    # 单只ETF失败重试机制
     for retry in range(MAX_RETRY):
         try:
-            res = requests.get(url, headers=headers, timeout=15)
+            res = http_session.get(
+                SSE_ETF_API_URL,
+                params=params,
+                headers=SSE_API_HEADERS,
+                timeout=15
+            )
             res.raise_for_status()
-            soup = BeautifulSoup(res.text, 'html.parser')
-            
-            # ========== 核心修复：精准匹配基金规模表格 ==========
-            target_table = None
-            # 遍历所有表格，找到带「日期」和「基金总份额」表头的目标表格
-            for table in soup.find_all('table'):
-                th_texts = [th.get_text(strip=True) for th in table.find_all('th')]
-                if '日期' in th_texts and '基金总份额' in th_texts:
-                    target_table = table
-                    break
-            
-            if not target_table:
-                logger.warning(f'{code} {date_str} 未找到基金规模表格，单只重试次数: {retry+1}')
-                time.sleep(REQUEST_INTERVAL * (retry + 1))
-                continue
-            
-            # 解析表格行，自动去除单元格前后空白字符，解决日期匹配失败问题
-            for row in target_table.find_all('tr'):
-                cols = [td.get_text(strip=True) for td in row.find_all('td')]
-                # 匹配日期列，基金总份额在第4列（索引3），单位：万份
-                if len(cols) >= 4 and cols[0] == date_str:
-                    share_value = cols[3].replace(',', '')
-                    share = float(share_value) / 10000  # 万份转亿份
-                    if share > 0:
-                        return share
-                    else:
-                        logger.warning(f'{code} {date_str} 份额数据为0，无效')
-                        return None
-            
-            # 未匹配到目标日期，当日无数据
-            logger.info(f'{code} {date_str} 未查询到对应日期数据')
-            return None
-        
+            payload = parse_jsonp_payload(res.text)
+            records = payload.get('pageHelp', {}).get('data', [])
+            if not records:
+                logger.info(f'{date_str} 接口未返回ETF份额数据')
+                return None
+
+            share_dict = {}
+            for item in records:
+                code = str(item.get('SEC_CODE', '')).strip()
+                if code not in ETF_CODES:
+                    continue
+
+                tot_vol = str(item.get('TOT_VOL', '')).replace(',', '').strip()
+                if not tot_vol:
+                    logger.warning(f'{date_str} {code} 接口未返回TOT_VOL')
+                    continue
+
+                share = float(tot_vol) / 10000  # 万份转亿份
+                if share > 0:
+                    share_dict[code] = share
+                else:
+                    logger.warning(f'{date_str} {code} 接口返回份额为0，无效')
+
+            missing_codes = [code for code in ETF_CODES if code not in share_dict]
+            if missing_codes:
+                logger.warning(f'{date_str} 接口返回缺少目标ETF数据: {missing_codes}')
+            else:
+                ETF_SHARE_CACHE[date_str] = share_dict
+
+            return share_dict
         except Exception as e:
-            logger.warning(f'{code} {date_str} 抓取失败，单只重试次数: {retry+1}，错误: {str(e)[:50]}')
+            logger.warning(f'{date_str} 接口抓取失败，重试次数: {retry+1}，错误: {str(e)[:80]}')
             time.sleep(REQUEST_INTERVAL * (retry + 1))
-    
-    # 多次重试全部失败
-    logger.error(f'{code} {date_str} 多次重试后抓取失败')
+
+    logger.error(f'{date_str} 多次重试后接口抓取失败')
     return None
+
+
+def fetch_etf_share_by_date(code: str, date_str: str) -> float | None:
+    """兼容旧调用：按日期拉取接口数据后，通过SEC_CODE获取单只ETF份额"""
+    share_dict = fetch_etf_shares_by_date(date_str)
+    if not share_dict:
+        return None
+    return share_dict.get(code)
 
 def get_trading_days(start_date: str, end_date: str) -> list:
     """生成交易日列表，自动跳过周末"""
@@ -340,20 +378,21 @@ def get_trading_days(start_date: str, end_date: str) -> list:
 def crawl_single_day(date_str: str) -> bool:
     """单日完整爬取逻辑，仅9只ETF全部成功返回True"""
     logger.info(f'===== 开始爬取交易日: {date_str} =====')
-    share_dict = {}
+    share_dict = fetch_etf_shares_by_date(date_str)
+    if not share_dict:
+        logger.error(f'{date_str} 接口未返回可用数据，当日完整数据获取终止')
+        return False
+
+    missing_codes = [code for code in ETF_CODES if share_dict.get(code, 0) <= 0]
+    if missing_codes:
+        logger.error(f'{date_str} 缺少目标ETF有效份额数据: {missing_codes}')
+        return False
+
     total_share = 0
-    
     for code in ETF_CODES:
-        share = fetch_etf_share_by_date(code, date_str)
-        if share is not None and share > 0:
-            share_dict[code] = share
-            total_share += share
-            logger.info(f'{code}: {share:.4f} 亿份')
-        else:
-            logger.error(f'{code} 抓取失败，当日完整数据获取终止')
-            return False
-        # 请求间隔防反爬
-        time.sleep(REQUEST_INTERVAL)
+        share = share_dict[code]
+        total_share += share
+        logger.info(f'{code}: {share:.4f} 亿份')
     
     # 构建入库数据
     insert_data = {
