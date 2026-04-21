@@ -67,7 +67,7 @@
 
             <!-- 右侧图表 -->
             <div class="flex-1 bg-white rounded-lg shadow p-4">
-                <div id="chart" class="w-full" style="height: 600px;"></div>
+                <div id="chart" class="w-full" style="height: 680px;"></div>
             </div>
         </div>
     </div>
@@ -244,35 +244,93 @@
                 }
             }
             
+            const shareLineColor = '#165DFF';
+
+            function formatShareAxisLabel(value) {
+                if (Math.abs(value) >= 10000) {
+                    return `${(value / 10000).toFixed(0)}万`;
+                }
+                return value.toFixed(0);
+            }
+
+            const validDailyChanges = dailyChanges.filter(value => value !== null);
+            const maxAbsDailyChange = validDailyChanges.length
+                ? Math.max(...validDailyChanges.map(value => Math.abs(value)))
+                : 0;
+            const dailyAxisLimit = Math.max(0.6, Math.ceil(maxAbsDailyChange * 1.25 * 10) / 10);
+            const dailyAxisInterval = Number((dailyAxisLimit / 3).toFixed(1));
+
             // 更新图表
             const option = {
-                title: {
-                    text: `${etf.name} 份额变化`,
-                    left: 'center'
-                },
+                backgroundColor: '#FFFFFF',
+                title: [
+                    {
+                        text: `${etf.name} 份额变化`,
+                        left: 'center',
+                        top: 10,
+                        textStyle: {
+                            color: '#1F2937',
+                            fontSize: 18,
+                            fontWeight: 700
+                        }
+                    },
+                    {
+                        text: '总份额走势',
+                        left: '9%',
+                        top: 64,
+                        textStyle: {
+                            color: '#165DFF',
+                            fontSize: 13,
+                            fontWeight: 700
+                        }
+                    },
+                    {
+                        text: '当日变动幅度',
+                        left: '9%',
+                        top: '61.5%',
+                        textStyle: {
+                            color: '#4B5563',
+                            fontSize: 13,
+                            fontWeight: 700
+                        }
+                    }
+                ],
                 tooltip: {
                     trigger: 'axis',
                     axisPointer: {
                         type: 'cross'
+                    },
+                    backgroundColor: 'rgba(17, 24, 39, 0.88)',
+                    borderWidth: 0,
+                    textStyle: {
+                        color: '#F9FAFB'
                     }
                 },
                 legend: {
                     data: ['总份额(万份)', '当日变动(%)'],
-                    top: 30
+                    top: 32,
+                    right: '4%',
+                    itemWidth: 14,
+                    itemHeight: 8,
+                    textStyle: {
+                        color: '#4B5563'
+                    }
                 },
                 grid: [
                     {
-                        left: '3%',
+                        left: '8%',
                         right: '4%',
-                        top: 80,
-                        height: '40%'
+                        top: 110,
+                        height: '30%',
+                        containLabel: true
                     },
                     {
-                        left: '3%',
+                        left: '8%',
                         right: '4%',
-                        top: '55%',
-                        height: '30%',
-                        bottom: 60
+                        top: '66%',
+                        height: '17%',
+                        bottom: 70,
+                        containLabel: true
                     }
                 ],
                 xAxis: [
@@ -280,16 +338,36 @@
                         type: 'category',
                         gridIndex: 0,
                         data: dates,
+                        boundaryGap: false,
+                        axisLine: {
+                            show: false
+                        },
+                        axisTick: {
+                            show: false
+                        },
                         axisLabel: {
-                            rotate: 30
+                            show: false
+                        },
+                        splitLine: {
+                            show: false
                         }
                     },
                     {
                         type: 'category',
                         gridIndex: 1,
                         data: dates,
+                        axisLine: {
+                            lineStyle: {
+                                color: '#CBD5E1'
+                            }
+                        },
+                        axisTick: {
+                            show: false
+                        },
                         axisLabel: {
-                            rotate: 30
+                            rotate: 30,
+                            color: '#6B7280',
+                            margin: 14
                         }
                     }
                 ],
@@ -297,17 +375,48 @@
                     {
                         type: 'value',
                         gridIndex: 0,
-                        name: '总份额(万份)',
+                        axisLine: {
+                            show: false
+                        },
+                        axisTick: {
+                            show: false
+                        },
                         axisLabel: {
-                            formatter: '{value}'
+                            formatter: formatShareAxisLabel,
+                            color: '#165DFF',
+                            margin: 10
+                        },
+                        splitLine: {
+                            lineStyle: {
+                                color: '#DBEAFE',
+                                type: 'dashed'
+                            }
                         }
                     },
                     {
                         type: 'value',
                         gridIndex: 1,
-                        name: '当日变动(%)',
+                        min: -dailyAxisLimit,
+                        max: dailyAxisLimit,
+                        interval: dailyAxisInterval,
+                        axisLine: {
+                            show: false
+                        },
+                        axisTick: {
+                            show: false
+                        },
                         axisLabel: {
-                            formatter: '{value}%'
+                            formatter: function(value) {
+                                return `${value.toFixed(1)}%`;
+                            },
+                            color: '#4B5563',
+                            margin: 10
+                        },
+                        splitLine: {
+                            lineStyle: {
+                                color: '#E5E7EB',
+                                type: 'dashed'
+                            }
                         }
                     }
                 ],
@@ -316,7 +425,15 @@
                         type: 'slider',
                         xAxisIndex: [0, 1],
                         start: 0,
-                        end: 100
+                        end: 100,
+                        height: 22,
+                        bottom: 22,
+                        borderColor: '#E5E7EB',
+                        fillerColor: 'rgba(22, 93, 255, 0.12)',
+                        backgroundColor: '#F8FAFC',
+                        handleStyle: {
+                            color: '#165DFF'
+                        }
                     }
                 ],
                 series: [
@@ -328,10 +445,25 @@
                         data: shares,
                         smooth: false, // 纯直线，无平滑
                         lineStyle: {
-                            width: 2,
-                            color: '#165DFF'
+                            width: 3,
+                            color: shareLineColor
                         },
-                        symbol: 'none'
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(22, 93, 255, 0.22)' },
+                                { offset: 1, color: 'rgba(22, 93, 255, 0.03)' }
+                            ])
+                        },
+                        itemStyle: {
+                            color: shareLineColor
+                        },
+                        symbol: 'circle',
+                        symbolSize: 7,
+                        showSymbol: data.length <= 15,
+                        emphasis: {
+                            focus: 'series',
+                            scale: true
+                        }
                     },
                     {
                         name: '当日变动(%)',
@@ -339,9 +471,24 @@
                         xAxisIndex: 1,
                         yAxisIndex: 1,
                         data: dailyChanges,
+                        barMaxWidth: 26,
                         itemStyle: {
                             color: function(params) {
                                 return barColors[params.dataIndex];
+                            },
+                            borderRadius: [6, 6, 0, 0]
+                        },
+                        markLine: {
+                            symbol: 'none',
+                            label: {
+                                show: false
+                            },
+                            data: [
+                                { yAxis: 0 }
+                            ],
+                            lineStyle: {
+                                color: '#9CA3AF',
+                                type: 'dashed'
                             }
                         }
                     }

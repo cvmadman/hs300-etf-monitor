@@ -20,6 +20,20 @@ DB_FILE = 'etf.db'
 DB_BACKUP_FILE = 'etf_backup.db'
 # 前端兼容的JSON数据文件
 JSON_FILE = 'etf_data.json'
+# 页面使用的前端数据文件
+FRONTEND_JSON_FILE = '../data/etf_share_data.json'
+# ETF名称映射（供前端展示）
+ETF_NAMES = {
+    '510300': '沪深300ETF华泰柏瑞',
+    '510310': '沪深300ETF易方达',
+    '510320': '沪深300ETF中金',
+    '510330': '沪深300ETF华夏',
+    '510350': '沪深300ETF工银',
+    '510360': '沪深300ETF广发',
+    '510370': '沪深300ETF兴业',
+    '510380': '沪深300ETF国寿安保',
+    '510390': '沪深300ETF平安'
+}
 # 历史数据起始日期
 START_DATE = '2026-04-01'
 # 单只ETF请求重试次数
@@ -475,6 +489,37 @@ def export_db_to_json():
         logger.info(f'已成功导出全量数据到 {JSON_FILE}，共 {len(all_data["dates"])} 条完整记录')
     except Exception as e:
         logger.error(f'导出JSON文件失败: {e}')
+
+    try:
+        frontend_data = {
+            'etfs': {},
+            'last_update': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        for code in ETF_CODES:
+            frontend_data['etfs'][code] = {
+                'name': ETF_NAMES.get(code, code),
+                'data': []
+            }
+
+        for idx, date_str in enumerate(all_data['dates']):
+            for code in ETF_CODES:
+                # 数据库存储单位是“亿份”，前端当前展示单位是“万份”
+                share_wan = round(all_data[code][idx] * 10000, 2)
+                frontend_data['etfs'][code]['data'].append({
+                    'date': date_str,
+                    'share': share_wan
+                })
+
+        frontend_dir = os.path.dirname(FRONTEND_JSON_FILE)
+        if frontend_dir:
+            os.makedirs(frontend_dir, exist_ok=True)
+
+        with open(FRONTEND_JSON_FILE, 'w', encoding='utf-8') as f:
+            json.dump(frontend_data, f, ensure_ascii=False, indent=2)
+        logger.info(f'已成功导出前端兼容数据到 {FRONTEND_JSON_FILE}')
+    except Exception as e:
+        logger.error(f'导出前端兼容JSON文件失败: {e}')
 
 # -------------------------- 主流程 --------------------------
 if __name__ == '__main__':
