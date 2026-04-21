@@ -426,18 +426,23 @@ def crawl_single_day(date_str: str) -> bool:
         return False
 
 def incremental_crawl():
-    """反向增量爬取：从新往旧爬，永不卡死，自动跳过未更新日期"""
-    earliest_processed_date = get_earliest_processed_date()
-    logger.info(f'当前断点：最早已完整处理日期 {earliest_processed_date}')
-    
-    end_crawl_date = START_DATE  # 爬取终点：2024-09-01
+    """增量爬取：覆盖最新未处理日期，也兼容回补历史缺口"""
     today = datetime.date.today().strftime('%Y-%m-%d')
-    
-    # 生成待爬取日期列表：从起始日期到断点前一天，反转后从新往旧爬
-    end_crawl_date_for_list = (datetime.datetime.strptime(earliest_processed_date, '%Y-%m-%d') - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-    need_crawl_days = get_trading_days(end_crawl_date, end_crawl_date_for_list)
-    
-    # 过滤已处理日期，反转顺序从新往旧爬
+    latest_processed_date = None
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute('SELECT MAX("date") FROM crawl_progress WHERE "is_processed" = 1')
+        latest_processed_date = cursor.fetchone()[0]
+        conn.close()
+    except Exception as e:
+        logger.warning(f'获取最新处理日期失败: {e}，将按全量未处理日期扫描')
+
+    logger.info(f'当前最新已完整处理日期: {latest_processed_date if latest_processed_date else "无"}')
+
+    # 从起始日期扫到今天，统一找出所有未处理交易日。
+    # 这样既能补历史缺口，也能抓到昨天/今天这类新的交易日。
+    need_crawl_days = get_trading_days(START_DATE, today)
     need_crawl_days = [day for day in need_crawl_days if not check_date_is_processed(day)]
     need_crawl_days.reverse()
     
