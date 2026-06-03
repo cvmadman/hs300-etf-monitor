@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>沪深300ETF份额变化监控</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        rise: '#F53F3F',
+                        fall: '#00B42A',
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .menu-item-active {
+                @apply bg-primary/10 text-primary border-l-4 border-primary;
+            }
+            .menu-item {
+                @apply px-4 py-2 cursor-pointer hover:bg-gray-100 transition-all;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold text-gray-800 mb-4">沪深300ETF份额变化监控</h1>
+        <p class="text-gray-500 text-sm mb-4">数据来源：上海证券交易所官网 | 最后更新：<span id="last_update">--</span></p>
+
+        <!-- 顶部控制栏 -->
+        <div class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap gap-4 items-center">
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-600">开始日期：</label>
+                <input type="date" id="start_date" class="border rounded px-2 py-1 text-sm">
+            </div>
+            <div class="flex items-center gap-2">
+                <label class="text-sm text-gray-600">结束日期：</label>
+                <input type="date" id="end_date" class="border rounded px-2 py-1 text-sm">
+            </div>
+            <button id="apply_date" class="bg-primary text-white px-4 py-1 rounded text-sm hover:bg-primary/90">应用区间</button>
+            
+            <div id="range_info" class="ml-auto text-sm hidden">
+                <span class="text-gray-600">选中区间变动：</span>
+                <span id="range_change" class="font-semibold"></span>
+                <span id="range_pct" class="font-semibold"></span>
+            </div>
+        </div>
+
+        <div class="flex flex-col md:flex-row gap-4">
+            <!-- 左侧菜单 -->
+            <div class="w-full md:w-64 bg-white rounded-lg shadow p-2 flex-shrink-0">
+                <h2 class="text-lg font-semibold px-4 py-2 border-b">ETF产品列表</h2>
+                <div id="etf_menu" class="mt-2">
+                    <!-- 菜单动态生成 -->
+                </div>
+            </div>
+
+            <!-- 右侧图表 -->
+            <div class="flex-1 bg-white rounded-lg shadow p-4">
+                <div id="chart" class="w-full" style="height: 680px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let rawData = null;
+        let selectedEtf = null;
+        let chart = null;
+
+        // 初始化
+        async function init() {
+            // 加载数据（从JSON文件读取，由爬虫每日自动生成）
+            try {
+                const resp = await fetch('data/etf_share_data.json');
+                rawData = await resp.json();
+                document.getElementById('last_update').textContent = rawData.last_update;
+
+                // 初始化日期选择器
+                initDatePicker();
+
+                // 生成菜单
+                generateMenu();
+
+                // 默认选中第一个ETF
+                const firstCode = Object.keys(rawData.etfs)[0];
+                selectEtf(firstCode);
+
+                // 初始化图表
+                initChart();
+            } catch (e) {
+                alert('数据加载失败，请稍后重试');
+                console.error(e);
+            }
+        }
+
+        // 初始化日期选择器
+        function initDatePicker() {
+            // 获取所有日期
+            let allDates = [];
+            for (let code in rawData.etfs) {
+                allDates = allDates.concat(rawData.etfs[code].data.map(d => d.date));
+            }
+            allDates = [...new Set(allDates)].sort();
+            const minDate = allDates[0];
+            const maxDate = allDates[allDates.length - 1];
+            
+            document.getElementById('start_date').min = minDate;
+            document.getElementById('start_date').max = maxDate;
+            document.getElementById('end_date').min = minDate;
+            document.getElementById('end_date').max = maxDate;
+            
+            // 默认选全部
+            document.getElementById('start_date').value = minDate;
+            document.getElementById('end_date').value = maxDate;
+        }
+
+        // 生成左侧菜单
+        function generateMenu() {
+            const menuEl = document.getElementById('etf_menu');
+            menuEl.innerHTML = '';
+            
+            for (let code in rawData.etfs) {
+                const etf = rawData.etfs[code];
+                const data = etf.data;
+                if (data.length < 2) continue;
+                
+                // 计算当日变动
+                const last = data[data.length - 1];
+                const prev = data[data.length - 2];
+                const change = last.share - prev.share;
+                const pct = (change / prev.share) * 100;
+                
+                // 颜色
+                const isRise = pct >= 0;
+                const colorClass = isRise ? 'text-rise' : 'text-fall';
+                const pctText = isRise ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+                
+                const item = document.createElement('div');
+                item.className = `menu-item ${selectedEtf === code ? 'menu-item-active' : ''}`;
+                item.dataset.code = code;
+                item.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span>${etf.name}</span>
+                        <span class="${colorClass} text-sm font-medium">${pctText}</span>
+                    </div>
+                `;
+                item.onclick = () => selectEtf(code);
+                menuEl.appendChild(item);
+            }
+        }
+
+        // 选中ETF
+        function selectEtf(code) {
+            selectedEtf = code;
+            // 更新菜单选中状态
+            document.querySelectorAll('.menu-item').forEach(el => {
+                el.classList.remove('menu-item-active');
+                if (el.dataset.code === code) {
+                    el.classList.add('menu-item-active');
+                }
+            });
+            // 更新图表
+            updateChart();
+        }
+
+        // 初始化图表
+        function initChart() {
+            const chartDom = document.getElementById('chart');
+            chart = echarts.init(chartDom);
+            window.addEventListener('resize', () => chart.resize());
+            
+            // 日期区间应用
+            document.getElementById('apply_date').onclick = () => {
+                updateChart();
+            };
+            
+            updateChart();
+        }
+
+        // 更新图表
+        function updateChart() {
+            if (!chart || !selectedEtf || !rawData) return;
+            
+            const etf = rawData.etfs[selectedEtf];
+            let data = etf.data;
+            
+            // 过滤日期区间
+            const startDate = document.getElementById('start_date').value;
+            const endDate = document.getElementById('end_date').value;
+            if (startDate && endDate) {
+                data = data.filter(d => d.date >= startDate && d.date <= endDate);
+            }
+            
+            if (data.length < 2) {
+                alert('选中区间没有足够的数据');
+                return;
+            }
+            
+            // 计算区间变动
+            const first = data[0];
+            const last = data[data.length - 1];
+            const rangeChange = last.share - first.share;
+            const rangePct = (rangeChange / first.share) * 100;
+            const isRangeRise = rangePct >= 0;
+            const rangeColor = isRangeRise ? 'text-rise' : 'text-fall';
+            const rangeChangeText = isRangeRise ? `+${rangeChange.toFixed(4)}亿份` : `${rangeChange.toFixed(4)}亿份`;
+            const rangePctText = isRangeRise ? `+${rangePct.toFixed(2)}%` : `${rangePct.toFixed(2)}%`;
+            
+            document.getElementById('range_info').classList.remove('hidden');
+            document.getElementById('range_change').textContent = rangeChangeText;
+            document.getElementById('range_change').className = `font-semibold ${rangeColor}`;
+            document.getElementById('range_pct').textContent = rangePctText;
+            document.getElementById('range_pct').className = `font-semibold ${rangeColor}`;
+            
+            // 计算每日变动百分比
+            const dates = [];
+            const shares = [];
+            const dailyChanges = [];
+            const barColors = [];
+            
+            for (let i = 0; i < data.length; i++) {
+                dates.push(data[i].date);
+                shares.push(data[i].share);
+                
+                if (i > 0) {
+                    const prev = data[i-1].share;
+                    const curr = data[i].share;
+                    const pct = ((curr - prev) / prev) * 100;
+                    dailyChanges.push(pct);
+                    barColors.push(pct >= 0 ? '#F53F3F' : '#00B42A');
+                } else {
+                    dailyChanges.push(null);
+                    barColors.push(null);
+                }
+            }
+            
+            const shareLineColor = '#165DFF';
+
+            function formatShareAxisLabel(value) {
+                if (Math.abs(value) >= 1) {
+                    return `${value.toFixed(2)}`;
+                }
+                return value.toFixed(2);
+            }
+
+            const validDailyChanges = dailyChanges.filter(value => value !== null);
+            const maxAbsDailyChange = validDailyChanges.length
+                ? Math.max(...validDailyChanges.map(value => Math.abs(value)))
+                : 0;
+            const dailyAxisLimit = Math.max(0.6, Math.ceil(maxAbsDailyChange * 1.25 * 10) / 10);
+            const dailyAxisInterval = Number((dailyAxisLimit / 3).toFixed(1));
+
+            // 更新图表
+            const option = {
+                backgroundColor: '#FFFFFF',
+                title: [
+                    {
+                        text: `${etf.name} 份额变化`,
+                        left: 'center',
+                        top: 10,
+                        textStyle: {
+                            color: '#1F2937',
+                            fontSize: 18,
+                            fontWeight: 700
+                        }
+                    },
+                    {
+                        text: '总份额走势',
+                        left: '9%',
+                        top: 64,
+                        textStyle: {
+                            color: '#165DFF',
+                            fontSize: 13,
+                            fontWeight: 700
+                        }
+                    },
+                    {
+                        text: '当日变动幅度',
+                        left: '9%',
+                        top: '61.5%',
+                        textStyle: {
+                            color: '#4B5563',
+                            fontSize: 13,
+                            fontWeight: 700
+                        }
+                    }
+                ],
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    },
+                    backgroundColor: 'rgba(17, 24, 39, 0.88)',
+                    borderWidth: 0,
+                    textStyle: {
+                        color: '#F9FAFB'
+                    }
+                },
+                legend: {
+                    data: ['总份额(亿份)', '当日变动(%)'],
+                    top: 32,
+                    right: '4%',
+                    itemWidth: 14,
+                    itemHeight: 8,
+                    textStyle: {
+                        color: '#4B5563'
+                    }
+                },
+                grid: [
+                    {
+                        left: '8%',
+                        right: '4%',
+                        top: 110,
+                        height: '30%',
+                        containLabel: true
+                    },
+                    {
+                        left: '8%',
+                        right: '4%',
+                        top: '66%',
+                        height: '17%',
+                        bottom: 70,
+                        containLabel: true
+                    }
+                ],
+                xAxis: [
+                    {
+                        type: 'category',
+                        gridIndex: 0,
+                        data: dates,
+                        boundaryGap: false,
+                        axisLine: {
+                            show: false
+                        },
+                        axisTick: {
+                            show: false
+                        },
+                        axisLabel: {
+                            show: false
+                        },
+                        splitLine: {
+                            show: false
+                        }
+                    },
+                    {
+                        type: 'category',
+                        gridIndex: 1,
+                        data: dates,
+                        axisLine: {
+                            lineStyle: {
+                                color: '#CBD5E1'
+                            }
+                        },
+                        axisTick: {
+                            show: false
+                        },
+                        axisLabel: {
+                            rotate: 30,
+                            color: '#6B7280',
+                            margin: 14
+                        }
+                    }
+                ],
+                yAxis: [
+                    {
+                        type: 'value',
+                        gridIndex: 0,
+                        axisLine: {
+                            show: false
+                        },
+                        axisTick: {
+                            show: false
+                        },
+                        axisLabel: {
+                            formatter: formatShareAxisLabel,
+                            color: '#165DFF',
+                            margin: 10
+                        },
+                        splitLine: {
+                            lineStyle: {
+                                color: '#DBEAFE',
+                                type: 'dashed'
+                            }
+                        }
+                    },
+                    {
+                        type: 'value',
+                        gridIndex: 1,
+                        min: -dailyAxisLimit,
+                        max: dailyAxisLimit,
+                        interval: dailyAxisInterval,
+                        axisLine: {
+                            show: false
+                        },
+                        axisTick: {
+                            show: false
+                        },
+                        axisLabel: {
+                            formatter: function(value) {
+                                return `${value.toFixed(1)}%`;
+                            },
+                            color: '#4B5563',
+                            margin: 10
+                        },
+                        splitLine: {
+                            lineStyle: {
+                                color: '#E5E7EB',
+                                type: 'dashed'
+                            }
+                        }
+                    }
+                ],
+                dataZoom: [
+                    {
+                        type: 'slider',
+                        xAxisIndex: [0, 1],
+                        start: 0,
+                        end: 100,
+                        height: 22,
+                        bottom: 22,
+                        borderColor: '#E5E7EB',
+                        fillerColor: 'rgba(22, 93, 255, 0.12)',
+                        backgroundColor: '#F8FAFC',
+                        handleStyle: {
+                            color: '#165DFF'
+                        }
+                    }
+                ],
+                series: [
+                    {
+                        name: '总份额(亿份)',
+                        type: 'line',
+                        xAxisIndex: 0,
+                        yAxisIndex: 0,
+                        data: shares,
+                        smooth: false, // 纯直线，无平滑
+                        lineStyle: {
+                            width: 3,
+                            color: shareLineColor
+                        },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(22, 93, 255, 0.22)' },
+                                { offset: 1, color: 'rgba(22, 93, 255, 0.03)' }
+                            ])
+                        },
+                        itemStyle: {
+                            color: shareLineColor
+                        },
+                        symbol: 'circle',
+                        symbolSize: 7,
+                        showSymbol: data.length <= 15,
+                        emphasis: {
+                            focus: 'series',
+                            scale: true
+                        }
+                    },
+                    {
+                        name: '当日变动(%)',
+                        type: 'bar',
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: dailyChanges,
+                        barMaxWidth: 26,
+                        itemStyle: {
+                            color: function(params) {
+                                return barColors[params.dataIndex];
+                            },
+                            borderRadius: [6, 6, 0, 0]
+                        },
+                        markLine: {
+                            symbol: 'none',
+                            label: {
+                                show: false
+                            },
+                            data: [
+                                { yAxis: 0 }
+                            ],
+                            lineStyle: {
+                                color: '#9CA3AF',
+                                type: 'dashed'
+                            }
+                        }
+                    }
+                ]
+            };
+            
+            chart.setOption(option, true);
+        }
+
+        // 页面加载完成后初始化
+        window.onload = init;
+    </script>
+</body>
+</html>
