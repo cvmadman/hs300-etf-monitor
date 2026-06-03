@@ -35,13 +35,13 @@ ETF_NAMES = {
     '510390': '沪深300ETF平安'
 }
 # 历史数据起始日期
-START_DATE = '2026-04-01'
+START_DATE = '2026-06-01'
 # 单只ETF请求重试次数
 MAX_RETRY = 3
 # 单日完整爬取重试次数
 MAX_DAILY_RETRY = 2
 # 请求基础间隔（防反爬）
-REQUEST_INTERVAL = 0.8
+REQUEST_INTERVAL = 1.5
 # 单日重试间隔
 DAILY_RETRY_INTERVAL = 5
 # 上交所ETF份额接口
@@ -49,11 +49,17 @@ SSE_ETF_API_URL = 'https://query.sse.com.cn/commonQuery.do'
 # 单次接口最大返回条数，当前全量ETF约800+条，预留更大容量
 SSE_API_PAGE_SIZE = 2000
 SSE_API_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
-    'Accept': '*/*',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Referer': 'https://www.sse.com.cn/',
-    'Connection': 'keep-alive'
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': 'https://www.sse.com.cn/market/etn/etf/',
+    'Connection': 'keep-alive',
+    'Sec-Fetch-Dest': 'script',
+    'Sec-Fetch-Mode': 'no-cors',
+    'Sec-Fetch-Site': 'same-site',
+    'Pragma': 'no-cache',
+    'Cache-Control': 'no-cache'
 }
 
 # -------------------------- 日志初始化 --------------------------
